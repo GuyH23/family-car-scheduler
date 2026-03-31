@@ -22,7 +22,7 @@ export default function MyBookings({ currentUser, bookings, onDeleteBooking }: M
   }, {})
 
   return (
-    <section className="panel">
+    <section className="panel panel--my-bookings">
       <h2>My bookings</h2>
       {myBookings.length === 0 && <p>No bookings yet.</p>}
 

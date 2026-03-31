@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Booking, CarFilter, FamilyMember } from '../types'
+import type { Booking, FamilyMember } from '../types'
 import {
   carVisualClass,
-  filterBookingsByCar,
   formatDateTime,
   formatTime,
   getWeekDays,
@@ -12,11 +11,10 @@ import {
 
 type WeeklyCalendarProps = {
   bookings: Booking[]
-  carFilter: CarFilter
   currentUser: FamilyMember
-  onFilterChange: (value: CarFilter) => void
   onDeleteBooking: (bookingId: string) => void
 }
+type CalendarSubView = 'daily' | 'weekly'
 
 type DaySegment = {
   booking: Booking
@@ -33,7 +31,7 @@ const HOURS_IN_DAY = 24
 const MINUTES_IN_DAY = 24 * 60
 const HOUR_HEIGHT = 64
 const GRID_HEIGHT = HOURS_IN_DAY * HOUR_HEIGHT
-const DEFAULT_SCROLL_MINUTE = 9 * 60
+const DEFAULT_SCROLL_MINUTE = 8 * 60
 
 function minutesSinceDayStart(dateValue: string, dayStart: Date): number {
   const date = new Date(dateValue)
@@ -127,16 +125,20 @@ function positionOverlappingSegments(segments: DaySegment[]): PositionedSegment[
 
 export default function WeeklyCalendar({
   bookings,
-  carFilter,
   currentUser,
-  onFilterChange,
   onDeleteBooking,
 }: WeeklyCalendarProps) {
+  const [subView, setSubView] = useState<CalendarSubView>('daily')
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()))
+  const [dayDate, setDayDate] = useState(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+  })
   const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null)
 
   const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart])
-  const filteredBookings = useMemo(() => filterBookingsByCar(bookings, carFilter), [bookings, carFilter])
+  const visibleDays = subView === 'daily' ? [dayDate] : weekDays
 
   useEffect(() => {
     if (!scrollContainer) {
@@ -144,50 +146,83 @@ export default function WeeklyCalendar({
     }
 
     scrollContainer.scrollTop = (DEFAULT_SCROLL_MINUTE / 60) * HOUR_HEIGHT - HOUR_HEIGHT
-  }, [scrollContainer, weekStart])
+  }, [dayDate, scrollContainer, subView, weekStart])
 
   const positionedByDay = useMemo(() => {
-    return weekDays.map((day) => {
-      const segments = filteredBookings
+    return visibleDays.map((day) => {
+      const segments = bookings
         .map((booking) => segmentForDay(booking, day))
         .filter((segment): segment is DaySegment => segment !== null)
       return positionOverlappingSegments(segments)
     })
-  }, [filteredBookings, weekDays])
+  }, [bookings, visibleDays])
 
   const weekTitle = `${weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${
     weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }`
+  const dayTitle = dayDate.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  const columnsCount = visibleDays.length
+  const gridMinWidth = 56 + columnsCount * 120
+  const columnsTemplate = `repeat(${columnsCount}, minmax(110px, 1fr))`
 
   return (
-    <section className="panel">
+    <section className="panel panel--calendar">
       <div className="week-header">
-        <h2>Weekly calendar</h2>
-        <label>
-          Car filter
-          <select value={carFilter} onChange={(event) => onFilterChange(event.target.value as CarFilter)}>
-            <option value="both">Both cars</option>
-            <option value="white">White car</option>
-            <option value="red">Red car</option>
-          </select>
-        </label>
+        <h2>Calendar</h2>
+        <div className="calendar-subtabs" role="tablist" aria-label="Calendar view mode">
+          <button
+            type="button"
+            className={subView === 'daily' ? 'active' : ''}
+            onClick={() => setSubView('daily')}
+          >
+            Daily
+          </button>
+          <button
+            type="button"
+            className={subView === 'weekly' ? 'active' : ''}
+            onClick={() => setSubView('weekly')}
+          >
+            Weekly
+          </button>
+        </div>
       </div>
 
       <div className="week-nav">
-        <button type="button" onClick={() => setWeekStart((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7))}>
-          Previous week
-        </button>
-        <strong>{weekTitle}</strong>
-        <button type="button" onClick={() => setWeekStart((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7))}>
-          Next week
-        </button>
+        {subView === 'weekly' && (
+          <>
+            <button type="button" onClick={() => setWeekStart((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7))}>
+              Previous week
+            </button>
+            <strong>{weekTitle}</strong>
+            <button type="button" onClick={() => setWeekStart((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7))}>
+              Next week
+            </button>
+          </>
+        )}
+
+        {subView === 'daily' && (
+          <>
+            <button type="button" onClick={() => setDayDate((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))}>
+              Previous day
+            </button>
+            <strong>{dayTitle}</strong>
+            <button type="button" onClick={() => setDayDate((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))}>
+              Next day
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="time-grid-shell">
-        <div className="time-grid-header">
+      <div className="time-grid-shell" ref={setScrollContainer}>
+        <div className="time-grid-header" style={{ minWidth: `${gridMinWidth}px` }}>
           <div className="time-axis-head"></div>
-          <div className="day-headers">
-            {weekDays.map((day) => (
+          <div className="day-headers" style={{ gridTemplateColumns: columnsTemplate }}>
+            {visibleDays.map((day) => (
               <div key={day.toISOString()} className="day-header">
                 <strong>{day.toLocaleDateString(undefined, { weekday: 'short' })}</strong>
                 <span>{day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
@@ -196,85 +231,83 @@ export default function WeeklyCalendar({
           </div>
         </div>
 
-        <div className="time-grid-scroll" ref={setScrollContainer}>
-          <div className="time-grid-body">
-            <div className="time-axis" style={{ height: `${GRID_HEIGHT}px` }}>
-              {Array.from({ length: HOURS_IN_DAY + 1 }).map((_, hour) => (
-                <span key={hour} style={{ top: `${hour * HOUR_HEIGHT}px` }}>
-                  {hour === 24 ? '' : `${String(hour).padStart(2, '0')}:00`}
-                </span>
-              ))}
-            </div>
+        <div className="time-grid-body" style={{ minWidth: `${gridMinWidth}px` }}>
+          <div className="time-axis" style={{ height: `${GRID_HEIGHT}px` }}>
+            {Array.from({ length: HOURS_IN_DAY + 1 }).map((_, hour) => (
+              <span key={hour} style={{ top: `${hour * HOUR_HEIGHT}px` }}>
+                {hour === 24 ? '' : `${String(hour).padStart(2, '0')}:00`}
+              </span>
+            ))}
+          </div>
 
-            <div className="day-columns">
-              {weekDays.map((day, dayIndex) => (
-                <div key={day.toISOString()} className="day-column" style={{ height: `${GRID_HEIGHT}px` }}>
-                  {Array.from({ length: HOURS_IN_DAY + 1 }).map((_, hour) => (
-                    <div
-                      key={hour}
-                      className="hour-line"
-                      style={{ top: `${hour * HOUR_HEIGHT}px` }}
-                    ></div>
-                  ))}
+          <div className="day-columns" style={{ gridTemplateColumns: columnsTemplate }}>
+            {visibleDays.map((day, dayIndex) => (
+              <div key={day.toISOString()} className="day-column" style={{ height: `${GRID_HEIGHT}px` }}>
+                {Array.from({ length: HOURS_IN_DAY + 1 }).map((_, hour) => (
+                  <div
+                    key={hour}
+                    className="hour-line"
+                    style={{ top: `${hour * HOUR_HEIGHT}px` }}
+                  ></div>
+                ))}
 
-                  {positionedByDay[dayIndex].map((segment) => {
-                    const duration = segment.endMinute - segment.startMinute
-                    const top = (segment.startMinute / 60) * HOUR_HEIGHT
-                    const height = (duration / 60) * HOUR_HEIGHT
-                    const width = 100 / segment.columnCount
-                    const left = segment.columnIndex * width
-                    const booking = segment.booking
+                {positionedByDay[dayIndex].map((segment) => {
+                  const duration = segment.endMinute - segment.startMinute
+                  const top = (segment.startMinute / 60) * HOUR_HEIGHT
+                  const height = (duration / 60) * HOUR_HEIGHT
+                  const width = 100 / segment.columnCount
+                  const left = segment.columnIndex * width
+                  const booking = segment.booking
 
-                    return (
-                      <article
-                        key={`${booking.id}-${dayIndex}`}
-                        className={`grid-event ${carVisualClass(booking.assignedCars)} ${booking.status === 'overridden' ? 'overridden' : ''} ${booking.isUrgent ? 'urgent' : ''}`}
-                        style={{
-                          top: `${top}px`,
-                          height: `${Math.max(18, height)}px`,
-                          left: `calc(${left}% + 2px)`,
-                          width: `calc(${width}% - 4px)`,
-                        }}
-                        title={`${booking.title?.trim() || 'Untitled booking'} | ${booking.user} | ${labelForAssignedCars(booking.assignedCars)} | ${formatDateTime(booking.startDateTime)} - ${formatDateTime(booking.endDateTime)}`}
-                      >
-                        <p className="event-title">{booking.title?.trim() || 'Untitled booking'}</p>
-                        {height >= 40 && (
-                          <p className="event-meta">
-                            {booking.user} - {labelForAssignedCars(booking.assignedCars)}
-                          </p>
-                        )}
-                        {height >= 54 && (
-                          <p className="event-meta">
-                            {formatTime(booking.startDateTime)} - {formatTime(booking.endDateTime)}
-                          </p>
-                        )}
-                        {booking.user === currentUser && (
-                          <button
-                            type="button"
-                            className="delete-event-btn"
-                            aria-label={`Delete booking ${booking.title?.trim() || booking.user}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              const confirmed = window.confirm('Delete this booking?')
-                              if (confirmed) {
-                                onDeleteBooking(booking.id)
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        )}
-                        <div className="event-tags">
-                          {booking.isUrgent && <span className="tag urgent">Urgent</span>}
-                          {booking.assignedCars.length > 1 && <span className="tag both-cars">Both cars</span>}
-                          {booking.status === 'overridden' && <span className="tag overridden">Overridden</span>}
-                        </div>
-                      </article>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
+                  return (
+                    <article
+                      key={`${booking.id}-${dayIndex}`}
+                      className={`grid-event ${carVisualClass(booking.assignedCars)} ${booking.status === 'overridden' ? 'overridden' : ''} ${booking.isUrgent ? 'urgent' : ''}`}
+                      style={{
+                        top: `${top}px`,
+                        height: `${Math.max(18, height)}px`,
+                        left: `calc(${left}% + 2px)`,
+                        width: `calc(${width}% - 4px)`,
+                      }}
+                      title={`${booking.title?.trim() || 'Untitled booking'} | ${booking.user} | ${labelForAssignedCars(booking.assignedCars)} | ${formatDateTime(booking.startDateTime)} - ${formatDateTime(booking.endDateTime)}`}
+                    >
+                      <p className="event-title">{booking.title?.trim() || 'Untitled booking'}</p>
+                      {height >= 40 && (
+                        <p className="event-meta">
+                          {booking.user} - {labelForAssignedCars(booking.assignedCars)}
+                        </p>
+                      )}
+                      {height >= 54 && (
+                        <p className="event-meta">
+                          {formatTime(booking.startDateTime)} - {formatTime(booking.endDateTime)}
+                        </p>
+                      )}
+                      {booking.user === currentUser && (
+                        <button
+                          type="button"
+                          className="delete-event-btn"
+                          aria-label={`Delete booking ${booking.title?.trim() || booking.user}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            const confirmed = window.confirm('Delete this booking?')
+                            if (confirmed) {
+                              onDeleteBooking(booking.id)
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                      <div className="event-tags">
+                        {booking.isUrgent && <span className="tag urgent">Urgent</span>}
+                        {booking.assignedCars.length > 1 && <span className="tag both-cars">Both cars</span>}
+                        {booking.status === 'overridden' && <span className="tag overridden">Overridden</span>}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </div>

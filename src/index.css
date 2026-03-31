@@ -2,11 +2,16 @@
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   font-family: Inter, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background: #f0f7ff;
   color: #0f172a;
+  overflow-y: scroll;
 }
 
 html[data-theme='pink'] body {

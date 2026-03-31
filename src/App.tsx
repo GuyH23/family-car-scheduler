@@ -4,9 +4,10 @@ import BookingForm from './components/BookingForm'
 import ConfirmModal from './components/ConfirmModal'
 import MyBookings from './components/MyBookings'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
+import ViewShell from './components/ViewShell'
 import UserSelectionModal from './components/UserSelectionModal'
 import WeeklyCalendar from './components/WeeklyCalendar'
-import type { Booking, CarFilter, CarId, FamilyMember, RequestedCarOption } from './types'
+import type { Booking, CarId, FamilyMember, RequestedCarOption } from './types'
 import { FAMILY_MEMBERS, PARENTS } from './types'
 import {
   combineDateAndTime,
@@ -40,7 +41,6 @@ function App() {
   const [selectedUser, setSelectedUser] = useState<FamilyMember>('Dad')
   const [theme, setTheme] = useState<ThemeName>('blue')
   const [selectedRequestedCarOption, setSelectedRequestedCarOption] = useState<RequestedCarOption>('noPreference')
-  const [carFilter, setCarFilter] = useState<CarFilter>('both')
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
   const [isUrgent, setIsUrgent] = useState(false)
@@ -450,42 +450,46 @@ function App() {
 
       <section className="view-content">
         {activeView === 'booking' && (
-          <BookingForm
-            values={{
-              title,
-              requestedCarOption: selectedRequestedCarOption,
-              startDate,
-              startTime,
-              endDate,
-              endTime,
-              isUrgent,
-              note,
-            }}
-            currentUser={selectedUser}
-            conflicts={conflicts}
-            selfConflicts={selfConflicts}
-            isValidRange={hasValidRange}
-            noCarAvailable={noCarAvailable}
-            isParent={isParent}
-            canSubmit={canSubmit}
-            statusMessage={statusMessage}
-            onFieldChange={onFieldChange}
-            onSubmit={submitBooking}
-          />
+          <ViewShell>
+            <BookingForm
+              values={{
+                title,
+                requestedCarOption: selectedRequestedCarOption,
+                startDate,
+                startTime,
+                endDate,
+                endTime,
+                isUrgent,
+                note,
+              }}
+              currentUser={selectedUser}
+              conflicts={conflicts}
+              selfConflicts={selfConflicts}
+              isValidRange={hasValidRange}
+              noCarAvailable={noCarAvailable}
+              isParent={isParent}
+              canSubmit={canSubmit}
+              statusMessage={statusMessage}
+              onFieldChange={onFieldChange}
+              onSubmit={submitBooking}
+            />
+          </ViewShell>
         )}
 
         {activeView === 'calendar' && (
-          <WeeklyCalendar
-            bookings={bookings}
-            carFilter={carFilter}
-            currentUser={selectedUser}
-            onFilterChange={setCarFilter}
-            onDeleteBooking={handleDeleteBooking}
-          />
+          <ViewShell>
+            <WeeklyCalendar
+              bookings={bookings}
+              currentUser={selectedUser}
+              onDeleteBooking={handleDeleteBooking}
+            />
+          </ViewShell>
         )}
 
         {activeView === 'myBookings' && (
-          <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
+          <ViewShell>
+            <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
+          </ViewShell>
         )}
       </section>
 
