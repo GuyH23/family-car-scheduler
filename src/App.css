@@ -4,6 +4,11 @@
   --accent-border: #93c5fd;
   --accent-text: #ffffff;
   --accent-ink: #0f3a99;
+  --card-radius: 12px;
+  --card-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --card-shadow-hover: 0 6px 18px rgba(15, 23, 42, 0.11);
+  --text-muted: #64748b;
+  --transition-fast: 150ms ease;
   max-width: 760px;
   margin: 0 auto;
   padding: 12px;
@@ -17,6 +22,8 @@
   --accent-border: #f9a8d4;
   --accent-text: #ffffff;
   --accent-ink: #9d174d;
+  --card-shadow: 0 4px 14px rgba(157, 23, 77, 0.09);
+  --card-shadow-hover: 0 6px 18px rgba(157, 23, 77, 0.12);
 }
 
 .app-header {
@@ -35,32 +42,40 @@
   display: grid;
   gap: 4px;
   font-size: 0.82rem;
-  color: #475569;
+  color: var(--text-muted);
 }
 
 .app-header h1 {
   margin: 0 0 6px;
-  font-size: 1.3rem;
+  font-size: 1.45rem;
+  font-weight: 700;
 }
 
 .app-header p {
-  color: #4b5563;
+  color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 .panel {
   background: #fff;
   border: 1px solid #dfe3ea;
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: var(--card-radius);
+  padding: 14px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  box-shadow: var(--card-shadow);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.panel:hover {
+  box-shadow: var(--card-shadow-hover);
 }
 
 .panel h2 {
   margin: 0 0 10px;
-  font-size: 1.05rem;
+  font-size: 1.14rem;
+  font-weight: 700;
 }
 
 .view-tabs {
@@ -73,7 +88,7 @@
 .view-tabs button {
   border: 1px solid #c4ccda;
   background: #fff;
-  color: #334155;
+  color: #475569;
   border-radius: 8px;
   min-height: 42px;
   padding: 10px 8px;
@@ -84,12 +99,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 
 .view-tabs button.active {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+  transform: translateY(-1px);
 }
 
 .view-content {
@@ -129,6 +146,7 @@
   gap: 5px;
   font-weight: 600;
   font-size: 0.93rem;
+  color: #334155;
 }
 
 .booking-form select,
@@ -159,6 +177,8 @@
   font-weight: 600;
   padding: 10px 12px;
   cursor: pointer;
+  transition: filter var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .booking-owner {
@@ -173,6 +193,16 @@
 .booking-form button:disabled {
   background: #9ca3af;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.booking-form button:not(:disabled):hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.booking-form button:not(:disabled):active {
+  transform: translateY(0);
 }
 
 .urgent-toggle {
@@ -201,7 +231,7 @@
 .status-message {
   margin-top: 10px;
   font-size: 0.9rem;
-  color: #0f172a;
+  color: #1e293b;
 }
 
 .override-notice {
@@ -251,18 +281,20 @@
 .calendar-subtabs button {
   border: 1px solid #c4ccda;
   background: #fff;
-  color: #334155;
+  color: #475569;
   border-radius: 8px;
   min-height: 34px;
   padding: 6px 10px;
   font-size: 0.82rem;
   font-weight: 600;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 
 .calendar-subtabs button.active {
   background: var(--accent-soft);
   border-color: var(--accent-border);
   color: var(--accent-ink);
+  transform: translateY(-1px);
 }
 
 .week-nav {
@@ -279,6 +311,7 @@
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.85rem;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .week-nav strong {
@@ -550,13 +583,14 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #f8fafc;
-  padding: 10px;
+  padding: 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   width: 100%;
   box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
 .my-booking-item.car-white {
@@ -596,7 +630,7 @@
 }
 
 .my-booking-item p {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 0.87rem;
   color: #334155;
 }
@@ -623,6 +657,7 @@
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 0.76rem;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .modal-backdrop {
@@ -694,6 +729,12 @@
   background: var(--accent);
   color: var(--accent-text);
   border: 1px solid var(--accent);
+  transition: filter var(--transition-fast), transform var(--transition-fast);
+}
+
+.modal-primary:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
 }
 
 .user-select-grid {

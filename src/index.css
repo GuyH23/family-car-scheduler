@@ -9,17 +9,17 @@ html {
 body {
   margin: 0;
   font-family: Inter, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: #f0f7ff;
+  background: #e9f3ff;
   color: #0f172a;
   overflow-y: scroll;
 }
 
 html[data-theme='pink'] body {
-  background: #fff1f7;
+  background: #ffe8f2;
 }
 
 html[data-theme='blue'] body {
-  background: #f0f7ff;
+  background: #e9f3ff;
 }
 
 #root {
