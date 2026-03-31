@@ -8,8 +8,12 @@ type MyBookingsProps = {
 }
 
 export default function MyBookings({ currentUser, bookings, onDeleteBooking }: MyBookingsProps) {
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+
   const myBookings = bookings
     .filter((booking) => booking.user === currentUser)
+    .filter((booking) => new Date(booking.endDateTime).getTime() >= startOfToday.getTime())
     .sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime())
 
   const groupedByDate = myBookings.reduce<Record<string, Booking[]>>((groups, booking) => {
