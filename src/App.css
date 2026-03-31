@@ -64,6 +64,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  align-items: stretch;
 }
 
 .view-tabs button {
@@ -71,14 +72,30 @@
   background: #fff;
   color: #334155;
   border-radius: 8px;
-  padding: 10px;
+  min-height: 42px;
+  padding: 10px 8px;
   font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.1;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .view-tabs button.active {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+}
+
+.view-content {
+  width: 100%;
+}
+
+.view-content > .panel {
+  width: 100%;
+  margin: 0;
 }
 
 .booking-form {
@@ -231,6 +248,7 @@
   border: 1px solid #dbe5f1;
   border-radius: 10px;
   overflow: auto;
+  width: 100%;
 }
 
 .time-grid-header {
@@ -643,7 +661,13 @@
   }
 
   .view-tabs {
-    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .view-tabs button {
+    min-height: 40px;
+    font-size: 0.82rem;
+    padding: 8px 6px;
   }
 
   .override-notice {

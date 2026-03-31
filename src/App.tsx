@@ -448,44 +448,46 @@ function App() {
         </button>
       </nav>
 
-      {activeView === 'booking' && (
-        <BookingForm
-          values={{
-            title,
-            requestedCarOption: selectedRequestedCarOption,
-            startDate,
-            startTime,
-            endDate,
-            endTime,
-            isUrgent,
-            note,
-          }}
-          currentUser={selectedUser}
-          conflicts={conflicts}
-          selfConflicts={selfConflicts}
-          isValidRange={hasValidRange}
-          noCarAvailable={noCarAvailable}
-          isParent={isParent}
-          canSubmit={canSubmit}
-          statusMessage={statusMessage}
-          onFieldChange={onFieldChange}
-          onSubmit={submitBooking}
-        />
-      )}
+      <section className="view-content">
+        {activeView === 'booking' && (
+          <BookingForm
+            values={{
+              title,
+              requestedCarOption: selectedRequestedCarOption,
+              startDate,
+              startTime,
+              endDate,
+              endTime,
+              isUrgent,
+              note,
+            }}
+            currentUser={selectedUser}
+            conflicts={conflicts}
+            selfConflicts={selfConflicts}
+            isValidRange={hasValidRange}
+            noCarAvailable={noCarAvailable}
+            isParent={isParent}
+            canSubmit={canSubmit}
+            statusMessage={statusMessage}
+            onFieldChange={onFieldChange}
+            onSubmit={submitBooking}
+          />
+        )}
 
-      {activeView === 'calendar' && (
-        <WeeklyCalendar
-          bookings={bookings}
-          carFilter={carFilter}
-          currentUser={selectedUser}
-          onFilterChange={setCarFilter}
-          onDeleteBooking={handleDeleteBooking}
-        />
-      )}
+        {activeView === 'calendar' && (
+          <WeeklyCalendar
+            bookings={bookings}
+            carFilter={carFilter}
+            currentUser={selectedUser}
+            onFilterChange={setCarFilter}
+            onDeleteBooking={handleDeleteBooking}
+          />
+        )}
 
-      {activeView === 'myBookings' && (
-        <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
-      )}
+        {activeView === 'myBookings' && (
+          <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
+        )}
+      </section>
 
       <ConfirmModal
         isOpen={duplicateBookingToMergeId !== null}
