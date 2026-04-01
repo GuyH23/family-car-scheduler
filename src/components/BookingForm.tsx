@@ -22,7 +22,8 @@ type BookingFormProps = {
   noCarAvailable: boolean
   isParent: boolean
   canSubmit: boolean
-  statusMessage: string
+  whiteAvailable: boolean
+  redAvailable: boolean
   onFieldChange: <K extends keyof BookingFormValues>(key: K, value: BookingFormValues[K]) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }
@@ -36,12 +37,41 @@ export default function BookingForm({
   noCarAvailable,
   isParent,
   canSubmit,
-  statusMessage,
+  whiteAvailable,
+  redAvailable,
   onFieldChange,
   onSubmit,
 }: BookingFormProps) {
   const ownConflictCount = selfConflicts.length
   const otherConflictCount = conflicts.length - ownConflictCount
+  const freeCarCount = Number(whiteAvailable) + Number(redAvailable)
+  const shouldShowAvailable = isValidRange && ownConflictCount === 0 && otherConflictCount === 0 && !noCarAvailable
+  const onlyWhiteAvailable = values.requestedCarOption === 'noPreference' && whiteAvailable && !redAvailable
+  const onlyRedAvailable = values.requestedCarOption === 'noPreference' && !whiteAvailable && redAvailable
+  const bothCarsUnavailableForRequest = values.requestedCarOption === 'bothCars' && freeCarCount < 2
+  const showBusyDetails = isValidRange && (ownConflictCount > 0 || otherConflictCount > 0 || noCarAvailable || bothCarsUnavailableForRequest)
+  const whiteConflict = conflicts.find((booking) => booking.assignedCars.includes('white'))
+  const redConflict = conflicts.find((booking) => booking.assignedCars.includes('red'))
+  const formatConflictOwner = (booking: Booking | undefined) => {
+    if (!booking) {
+      return ''
+    }
+    const cleanTitle = (booking.title ?? '').trim()
+    return cleanTitle ? `${booking.user} (${cleanTitle})` : booking.user
+  }
+  const whiteOwner = formatConflictOwner(whiteConflict)
+  const redOwner = formatConflictOwner(redConflict)
+  const conflictDetails = conflicts.flatMap((booking) =>
+    booking.assignedCars.map((car) => {
+      const carLabel = car === 'white' ? 'White' : 'Red'
+      const cleanTitle = (booking.title ?? '').trim()
+      const titleSuffix = cleanTitle ? ` (${cleanTitle})` : ''
+      return {
+        key: `${booking.id}-${car}`,
+        message: `${carLabel} car is booked by ${booking.user}${titleSuffix}`,
+      }
+    }),
+  )
 
   return (
     <section className="panel">
@@ -127,28 +157,48 @@ export default function BookingForm({
           Urgent (Mom and Dad only)
         </label>
 
-        <div className={`availability ${isValidRange && conflicts.length === 0 && !noCarAvailable ? 'available' : 'busy'}`}>
+        <div className={`availability ${shouldShowAvailable ? 'available' : 'busy'}`}>
           {!isValidRange && <p>End time must be after start time.</p>}
-          {isValidRange && noCarAvailable && <p>No car is available for automatic assignment in this range.</p>}
-          {isValidRange && !noCarAvailable && conflicts.length === 0 && <p>Car is available for this time range.</p>}
+          {shouldShowAvailable && !onlyWhiteAvailable && !onlyRedAvailable && <p>Car is available for this time range.</p>}
+          {shouldShowAvailable && onlyWhiteAvailable && <p>Only White is available in this time range.</p>}
+          {shouldShowAvailable && onlyRedAvailable && <p>Only Red is available in this time range.</p>}
+          {isValidRange && bothCarsUnavailableForRequest && (
+            <p>Both cars are required, but fewer than 2 cars are available in this time range.</p>
+          )}
+          {isValidRange && noCarAvailable && <p>Both cars are already occupied in this time range.</p>}
           {isValidRange && ownConflictCount > 0 && otherConflictCount === 0 && (
             <p>
-              You already have {ownConflictCount} booking(s) in this range. Urgent cannot override your own bookings.
+              This slot is not available for you because it overlaps your own booking(s). Urgent cannot override your own bookings.
             </p>
           )}
           {isValidRange && ownConflictCount === 0 && otherConflictCount > 0 && (
             <p>
-              Overlaps with {otherConflictCount} active booking(s).
-              {isParent ? ' Use urgent to override.' : ' Choose another time.'}
+              This slot is not available. Choose another time{isParent ? ' or use urgent for other-user conflicts.' : '.'}
             </p>
+          )}
+          {isValidRange && values.requestedCarOption === 'bothCars' && freeCarCount === 1 && whiteAvailable && redOwner && (
+            <p>Both cars is not possible because Red is already booked by {redOwner}.</p>
+          )}
+          {isValidRange && values.requestedCarOption === 'bothCars' && freeCarCount === 1 && redAvailable && whiteOwner && (
+            <p>Both cars is not possible because White is already booked by {whiteOwner}.</p>
+          )}
+          {isValidRange && values.requestedCarOption === 'red' && !redAvailable && redOwner && (
+            <p>Red car is booked by {redOwner}.</p>
+          )}
+          {isValidRange && values.requestedCarOption === 'white' && !whiteAvailable && whiteOwner && (
+            <p>White car is booked by {whiteOwner}.</p>
           )}
           {isValidRange && ownConflictCount > 0 && otherConflictCount > 0 && (
             <p>
-              Overlaps with your own booking(s) ({ownConflictCount}) and other booking(s) ({otherConflictCount}).
-              {isParent
-                ? ' Urgent can override other users bookings, but not your own.'
-                : ' Please choose another time or delete your own conflicting booking first.'}
+              This slot overlaps your own booking(s) and other booking(s). Urgent can override other users, but not your own bookings.
             </p>
+          )}
+          {showBusyDetails && conflictDetails.length > 0 && (
+            <ul className="availability-conflicts">
+              {conflictDetails.map((detail) => (
+                <li key={detail.key}>{detail.message}</li>
+              ))}
+            </ul>
           )}
         </div>
 
@@ -156,8 +206,6 @@ export default function BookingForm({
           Save booking
         </button>
       </form>
-
-      {statusMessage && <p className="status-message">{statusMessage}</p>}
     </section>
   )
 }

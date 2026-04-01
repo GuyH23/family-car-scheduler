@@ -57,7 +57,8 @@ create or replace function public.attempt_booking(
   p_start_datetime timestamptz,
   p_end_datetime timestamptz,
   p_is_urgent boolean,
-  p_note text
+  p_note text,
+  p_confirm_urgent_override boolean default false
 )
 returns jsonb
 language plpgsql
@@ -69,6 +70,7 @@ declare
   resolved_assigned_cars text[];
   exact_existing_booking_id uuid;
   exact_reserved_cars text[];
+  exact_effective_cars text[];
   has_exact_white boolean;
   has_exact_red boolean;
   intersects_exact_reserved boolean;
@@ -78,6 +80,9 @@ declare
   affected_user_name text;
   affected_start_datetime timestamptz;
   affected_end_datetime timestamptz;
+  white_available boolean;
+  red_available boolean;
+  available_count integer;
 begin
   if p_start_datetime >= p_end_datetime then
     return jsonb_build_object(
@@ -95,12 +100,60 @@ begin
     );
   end if;
 
+  white_available := not exists (
+    select 1
+    from public.bookings b
+    where b.status = 'active'
+      and b.start_datetime < p_end_datetime
+      and b.end_datetime > p_start_datetime
+      and 'white' = any(b.assigned_cars)
+  );
+
+  red_available := not exists (
+    select 1
+    from public.bookings b
+    where b.status = 'active'
+      and b.start_datetime < p_end_datetime
+      and b.end_datetime > p_start_datetime
+      and 'red' = any(b.assigned_cars)
+  );
+
+  available_count := (case when white_available then 1 else 0 end)
+                   + (case when red_available then 1 else 0 end);
+
   if p_requested_car_option = 'white' then
-    resolved_assigned_cars := array['white'];
+    if white_available then
+      resolved_assigned_cars := array['white'];
+    elsif p_is_urgent and is_parent then
+      resolved_assigned_cars := array['white'];
+    else
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'White car is not available in this time range.'
+      );
+    end if;
   elsif p_requested_car_option = 'red' then
-    resolved_assigned_cars := array['red'];
+    if red_available then
+      resolved_assigned_cars := array['red'];
+    elsif p_is_urgent and is_parent then
+      resolved_assigned_cars := array['red'];
+    else
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'Red car is not available in this time range.'
+      );
+    end if;
   elsif p_requested_car_option = 'bothCars' then
-    resolved_assigned_cars := array['white', 'red'];
+    if available_count = 2 then
+      resolved_assigned_cars := array['white', 'red'];
+    elsif p_is_urgent and is_parent then
+      resolved_assigned_cars := array['white', 'red'];
+    else
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'Both cars are required, but fewer than 2 cars are available in this time range.'
+      );
+    end if;
   elsif p_requested_car_option = 'noPreference' then
     preferred_car := case
       when p_user_name in ('Dad', 'Noa', 'Yuval') then 'white'
@@ -108,23 +161,11 @@ begin
     end;
     fallback_car := case when preferred_car = 'white' then 'red' else 'white' end;
 
-    if not exists (
-      select 1
-      from public.bookings b
-      where b.status = 'active'
-        and b.start_datetime < p_end_datetime
-        and b.end_datetime > p_start_datetime
-        and preferred_car = any(b.assigned_cars)
-    ) then
+    if (preferred_car = 'white' and white_available)
+       or (preferred_car = 'red' and red_available) then
       resolved_assigned_cars := array[preferred_car];
-    elsif not exists (
-      select 1
-      from public.bookings b
-      where b.status = 'active'
-        and b.start_datetime < p_end_datetime
-        and b.end_datetime > p_start_datetime
-        and fallback_car = any(b.assigned_cars)
-    ) then
+    elsif (fallback_car = 'white' and white_available)
+       or (fallback_car = 'red' and red_available) then
       resolved_assigned_cars := array[fallback_car];
     elsif p_is_urgent and is_parent then
       resolved_assigned_cars := array[preferred_car];
@@ -141,12 +182,36 @@ begin
     );
   end if;
 
-  select
-    min(b.id),
-    coalesce(array_agg(distinct c.car), array[]::text[])
-  into
-    exact_existing_booking_id,
-    exact_reserved_cars
+  resolved_assigned_cars := (
+    select array_agg(distinct car order by car)
+    from unnest(resolved_assigned_cars) as t(car)
+  );
+
+  if coalesce(array_length(resolved_assigned_cars, 1), 0) = 0
+     or coalesce(array_length(resolved_assigned_cars, 1), 0) > 2
+     or exists (
+       select 1
+       from unnest(resolved_assigned_cars) as t(car)
+       where t.car not in ('white', 'red')
+     ) then
+    return jsonb_build_object(
+      'decision', 'blocked',
+      'message', 'Invalid car assignment for this booking.'
+    );
+  end if;
+
+  select b.id
+  into exact_existing_booking_id
+  from public.bookings b
+  where b.user_name = p_user_name
+    and b.status = 'active'
+    and b.start_datetime = p_start_datetime
+    and b.end_datetime = p_end_datetime
+  order by b.created_at asc, b.id asc
+  limit 1;
+
+  select coalesce(array_agg(distinct c.car), array[]::text[])
+  into exact_reserved_cars
   from public.bookings b
   left join lateral unnest(b.assigned_cars) as c(car) on true
   where b.user_name = p_user_name
@@ -163,8 +228,17 @@ begin
   );
 
   if exact_existing_booking_id is not null then
+    exact_effective_cars := (
+      select array_agg(distinct car order by car)
+      from (
+        select unnest(exact_reserved_cars) as car
+        union all
+        select unnest(resolved_assigned_cars) as car
+      ) merged
+    );
+
     if (has_exact_white and has_exact_red)
-      or (array['white', 'red']::text[] <@ resolved_assigned_cars)
+      or (array['white', 'red']::text[] <@ exact_effective_cars)
     then
       return jsonb_build_object(
         'decision', 'blocked',
@@ -176,6 +250,21 @@ begin
       return jsonb_build_object(
         'decision', 'blocked',
         'message', 'You already have this exact booking time and car. New booking was not created.'
+      );
+    end if;
+
+    if exists (
+      select 1
+      from public.bookings b
+      where b.status = 'active'
+        and b.user_name <> p_user_name
+        and b.start_datetime < p_end_datetime
+        and b.end_datetime > p_start_datetime
+        and b.assigned_cars && exact_effective_cars
+    ) then
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'Cannot combine to both cars because one of the cars is already booked by another user in this time range.'
       );
     end if;
 
@@ -217,6 +306,28 @@ begin
     return jsonb_build_object(
       'decision', 'blocked',
       'message', 'Please choose a valid time range and an available slot.'
+    );
+  end if;
+
+  if has_other_conflicts and p_is_urgent and is_parent and not p_confirm_urgent_override then
+    select b.user_name, b.start_datetime, b.end_datetime
+    into affected_user_name, affected_start_datetime, affected_end_datetime
+    from public.bookings b
+    where b.status = 'active'
+      and b.user_name <> p_user_name
+      and b.start_datetime < p_end_datetime
+      and b.end_datetime > p_start_datetime
+      and b.assigned_cars && resolved_assigned_cars
+    order by b.start_datetime asc, b.created_at asc
+    limit 1;
+
+    return jsonb_build_object(
+      'decision', 'needs_urgent_confirmation',
+      'message', 'Urgent booking will override another user booking. Please confirm to continue.',
+      'affectedUserName', affected_user_name,
+      'affectedStartDateTime', affected_start_datetime,
+      'affectedEndDateTime', affected_end_datetime,
+      'conflictingCars', resolved_assigned_cars
     );
   end if;
 
@@ -307,7 +418,47 @@ create or replace function public.confirm_exact_time_both_cars(
 returns void
 language plpgsql
 as $$
+declare
+  booking_start timestamptz;
+  booking_end timestamptz;
 begin
+  select start_datetime, end_datetime
+  into booking_start, booking_end
+  from public.bookings
+  where id = p_booking_id
+    and user_name = p_user_name
+    and status = 'active'
+  limit 1;
+
+  if booking_start is null or booking_end is null then
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.bookings b
+    where b.status = 'active'
+      and b.user_name <> p_user_name
+      and b.start_datetime < booking_end
+      and b.end_datetime > booking_start
+      and b.assigned_cars && array['white', 'red']::text[]
+  ) then
+    raise exception 'Cannot switch to both cars because one of the cars is already occupied in this time range.';
+  end if;
+
+  if exists (
+    select 1
+    from public.bookings b
+    where b.status = 'active'
+      and b.user_name = p_user_name
+      and b.id <> p_booking_id
+      and b.start_datetime = booking_start
+      and b.end_datetime = booking_end
+      and b.assigned_cars && array['white', 'red']::text[]
+  ) then
+    raise exception 'Cannot switch to both cars because another exact-time booking already reserves one of the cars.';
+  end if;
+
   update public.bookings
   set
     requested_car_option = 'bothCars',

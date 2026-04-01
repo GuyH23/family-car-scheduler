@@ -82,6 +82,12 @@
   color: #9f1239;
 }
 
+.app-notice.warning {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .app-notice button {
   border: 1px solid #cbd5e1;
   background: #fff;
@@ -266,6 +272,16 @@
 .availability.busy {
   background: #fef2f2;
   color: #a4121f;
+}
+
+.availability-conflicts {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-weight: 500;
+}
+
+.availability-conflicts li + li {
+  margin-top: 4px;
 }
 
 .status-message {

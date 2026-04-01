@@ -27,6 +27,7 @@ import {
   listBookings,
   updateBookingById,
 } from './services/bookingsService'
+import type { AttemptBookingInput } from './services/bookingsService'
 import './App.css'
 
 const CURRENT_USER_KEY = 'carScheduler.currentUser.v1'
@@ -39,8 +40,15 @@ type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
 }
+type PendingUrgentConfirmation = {
+  attemptInput: AttemptBookingInput
+  affectedUserName: FamilyMember
+  affectedStartDateTime: string
+  affectedEndDateTime: string
+  conflictingCars: CarId[]
+}
 type Notice = {
-  type: 'success' | 'error'
+  type: 'success' | 'error' | 'warning'
   message: string
 }
 
@@ -90,11 +98,11 @@ function App() {
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
   const [isUrgent, setIsUrgent] = useState(false)
-  const [statusMessage, setStatusMessage] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isLoadingBookings, setIsLoadingBookings] = useState(true)
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false)
   const [duplicateBookingToMergeId, setDuplicateBookingToMergeId] = useState<string | null>(null)
+  const [pendingUrgentConfirmation, setPendingUrgentConfirmation] = useState<PendingUrgentConfirmation | null>(null)
   const [overrideNotifyPayload, setOverrideNotifyPayload] = useState<OverrideNotifyPayload | null>(null)
   const [isUserSelectionModalOpen, setIsUserSelectionModalOpen] = useState(false)
   const [hasLoadedUserPreference, setHasLoadedUserPreference] = useState(false)
@@ -206,6 +214,14 @@ function App() {
     () => conflicts.filter((booking) => booking.user === selectedUser),
     [conflicts, selectedUser],
   )
+  const whiteAvailable = useMemo(
+    () => hasValidRange && getConflicts(bookings, ['white'], startDateTime, endDateTime).length === 0,
+    [bookings, endDateTime, hasValidRange, startDateTime],
+  )
+  const redAvailable = useMemo(
+    () => hasValidRange && getConflicts(bookings, ['red'], startDateTime, endDateTime).length === 0,
+    [bookings, endDateTime, hasValidRange, startDateTime],
+  )
 
   const canSubmit = hasValidRange && !isSubmittingBooking
   const noCarAvailable = hasValidRange && selectedRequestedCarOption === 'noPreference' && assignedCars === null
@@ -226,18 +242,16 @@ function App() {
     }
 
     setIsSubmittingBooking(true)
-    setStatusMessage('')
     setNotice(null)
 
     try {
       if (!hasValidRange) {
-        setStatusMessage('Please choose a valid time range and an available slot.')
+        setNotice({ type: 'error', message: 'Please choose a valid time range and an available slot.' })
         return
       }
 
-      const bookingId = crypto.randomUUID()
-      const result = await attemptBooking({
-        bookingId,
+      const attemptInput: AttemptBookingInput = {
+        bookingId: crypto.randomUUID(),
         title: title.trim(),
         userName: selectedUser,
         requestedCarOption: selectedRequestedCarOption,
@@ -245,16 +259,30 @@ function App() {
         endDateTime,
         isUrgent: canUseUrgentVeto,
         note: note.trim(),
-      })
+        confirmUrgentOverride: false,
+      }
+      const result = await attemptBooking(attemptInput)
 
       if (result.decision === 'blocked') {
-        setStatusMessage(result.message)
+        setNotice({ type: 'error', message: result.message })
         return
       }
 
       if (result.decision === 'needs_both_cars_decision') {
         setDuplicateBookingToMergeId(result.existingBookingId)
-        setStatusMessage(result.message)
+        setNotice({ type: 'warning', message: result.message })
+        return
+      }
+
+      if (result.decision === 'needs_urgent_confirmation') {
+        setPendingUrgentConfirmation({
+          attemptInput,
+          affectedUserName: result.affectedUserName,
+          affectedStartDateTime: result.affectedStartDateTime,
+          affectedEndDateTime: result.affectedEndDateTime,
+          conflictingCars: result.conflictingCars,
+        })
+        setNotice({ type: 'warning', message: result.message })
         return
       }
 
@@ -276,7 +304,6 @@ function App() {
           message: notifyMessage,
         })
 
-        setStatusMessage(result.message)
         setNotice({
           type: 'success',
           message: result.message,
@@ -284,10 +311,8 @@ function App() {
         return
       }
 
-      setStatusMessage(result.message)
       setNotice({ type: 'success', message: result.message })
     } catch {
-      setStatusMessage('Could not save booking to Supabase. Please try again.')
       setNotice({ type: 'error', message: 'Could not save booking. Please try again.' })
     } finally {
       setIsSubmittingBooking(false)
@@ -300,7 +325,6 @@ function App() {
       await refreshBookings()
       setNotice({ type: 'success', message: 'Booking deleted successfully.' })
     } catch {
-      setStatusMessage('Could not delete booking from Supabase.')
       setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
     }
   }
@@ -314,17 +338,73 @@ function App() {
       await confirmBothCarsForExistingBooking(duplicateBookingToMergeId, selectedUser)
       await refreshBookings()
       setDuplicateBookingToMergeId(null)
-      setStatusMessage('Existing booking was updated to use both cars.')
       setNotice({ type: 'success', message: 'Booking updated to use both cars.' })
     } catch {
-      setStatusMessage('Could not update booking in Supabase.')
       setNotice({ type: 'error', message: 'Could not update booking. Please try again.' })
     }
   }
 
   const handleCancelDuplicateMerge = () => {
     setDuplicateBookingToMergeId(null)
-    setStatusMessage('Booking creation cancelled.')
+    setNotice({ type: 'warning', message: 'Booking creation cancelled.' })
+  }
+
+  const handleConfirmUrgentOverride = async () => {
+    if (!pendingUrgentConfirmation) {
+      return
+    }
+
+    setIsSubmittingBooking(true)
+    try {
+      const result = await attemptBooking({
+        ...pendingUrgentConfirmation.attemptInput,
+        confirmUrgentOverride: true,
+      })
+      setPendingUrgentConfirmation(null)
+
+      if (result.decision === 'blocked') {
+        setNotice({ type: 'error', message: result.message })
+        return
+      }
+      if (result.decision === 'needs_urgent_confirmation') {
+        setNotice({ type: 'warning', message: result.message })
+        return
+      }
+      if (result.decision === 'needs_both_cars_decision') {
+        setDuplicateBookingToMergeId(result.existingBookingId)
+        setNotice({ type: 'warning', message: result.message })
+        return
+      }
+
+      await refreshBookings()
+      setTitle('')
+      setNote('')
+      setSelectedRequestedCarOption('noPreference')
+
+      if (result.decision === 'created_with_override') {
+        const formattedDate = new Date(result.affectedStartDateTime).toLocaleDateString('he-IL')
+        const formattedTime = `${formatTime(result.affectedStartDateTime)}-${formatTime(result.affectedEndDateTime)}`
+        const notifyMessage = `היי ${result.affectedUserName},
+מצטער/ת אבל נאלצתי לדרוס את בקשת הרכב שלך בתאריך ${formattedDate} בין השעות ${formattedTime}.
+כדאי לבדוק את האפליקציה לעדכון.`
+
+        setOverrideNotifyPayload({
+          affectedName: result.affectedUserName,
+          message: notifyMessage,
+        })
+      }
+
+      setNotice({ type: 'success', message: result.message })
+    } catch {
+      setNotice({ type: 'error', message: 'Could not save booking. Please try again.' })
+    } finally {
+      setIsSubmittingBooking(false)
+    }
+  }
+
+  const handleCancelUrgentOverride = () => {
+    setPendingUrgentConfirmation(null)
+    setNotice({ type: 'warning', message: 'Urgent override was cancelled.' })
   }
 
   const markBookingNotificationSeen = async (bookingId: string) => {
@@ -332,7 +412,6 @@ function App() {
       await updateBookingById(bookingId, { notified: true })
       await refreshBookings()
     } catch {
-      setStatusMessage('Could not update notification state in Supabase.')
       setNotice({ type: 'error', message: 'Could not update notification state.' })
     }
   }
@@ -495,7 +574,8 @@ function App() {
               noCarAvailable={noCarAvailable}
               isParent={isParent}
               canSubmit={canSubmit}
-              statusMessage={statusMessage}
+              whiteAvailable={whiteAvailable}
+              redAvailable={redAvailable}
               onFieldChange={onFieldChange}
               onSubmit={submitBooking}
             />
@@ -527,6 +607,18 @@ function App() {
         secondaryLabel="Cancel"
         onPrimary={handleUseBothCarsForDuplicate}
         onSecondary={handleCancelDuplicateMerge}
+      />
+
+      <ConfirmModal
+        isOpen={pendingUrgentConfirmation !== null}
+        title="Confirm urgent override"
+        message={pendingUrgentConfirmation
+          ? `This urgent booking will override ${pendingUrgentConfirmation.affectedUserName}'s booking (${formatDateTime(pendingUrgentConfirmation.affectedStartDateTime)} - ${formatDateTime(pendingUrgentConfirmation.affectedEndDateTime)}) for ${labelForAssignedCars(pendingUrgentConfirmation.conflictingCars)}. Continue?`
+          : ''}
+        primaryLabel="Override booking"
+        secondaryLabel="Cancel"
+        onPrimary={handleConfirmUrgentOverride}
+        onSecondary={handleCancelUrgentOverride}
       />
 
       <UrgentOverrideModal

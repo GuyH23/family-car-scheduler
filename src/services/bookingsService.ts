@@ -103,10 +103,19 @@ export type AttemptBookingInput = {
   endDateTime: string
   isUrgent: boolean
   note: string
+  confirmUrgentOverride?: boolean
 }
 
 export type AttemptBookingResult =
   | { decision: 'created'; message: string }
+  | {
+    decision: 'needs_urgent_confirmation'
+    message: string
+    affectedUserName: Booking['user']
+    affectedStartDateTime: string
+    affectedEndDateTime: string
+    conflictingCars: Booking['assignedCars']
+  }
   | {
     decision: 'created_with_override'
     message: string
@@ -128,6 +137,7 @@ export async function attemptBooking(input: AttemptBookingInput): Promise<Attemp
     p_end_datetime: input.endDateTime,
     p_is_urgent: input.isUrgent,
     p_note: input.note || null,
+    p_confirm_urgent_override: input.confirmUrgentOverride ?? false,
   })
 
   if (error) {
