@@ -31,7 +31,7 @@ const HOURS_IN_DAY = 24
 const MINUTES_IN_DAY = 24 * 60
 const HOUR_HEIGHT = 64
 const GRID_HEIGHT = HOURS_IN_DAY * HOUR_HEIGHT
-const DEFAULT_SCROLL_MINUTE = 8 * 60
+const DEFAULT_SCROLL_MINUTE = 10 * 60
 
 function toDateInputValue(date: Date): string {
   const year = date.getFullYear()

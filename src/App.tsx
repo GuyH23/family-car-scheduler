@@ -37,7 +37,7 @@ const THEME_KEY = 'carScheduler.theme.v1'
 
 type AppView = 'booking' | 'calendar' | 'myBookings'
 type ThemeName = 'blue' | 'pink'
-type BookingFormField = 'title' | 'requestedCarOption' | 'startDate' | 'startTime' | 'endDate' | 'endTime' | 'isUrgent' | 'note'
+type BookingFormField = 'title' | 'requestedCarOption' | 'startDate' | 'startTime' | 'endDate' | 'endTime' | 'isUrgent'
 type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
@@ -96,7 +96,6 @@ function App() {
   const [theme, setTheme] = useState<ThemeName>('blue')
   const [selectedRequestedCarOption, setSelectedRequestedCarOption] = useState<RequestedCarOption>('noPreference')
   const [title, setTitle] = useState('')
-  const [note, setNote] = useState('')
   const [isUrgent, setIsUrgent] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isLoadingBookings, setIsLoadingBookings] = useState(true)
@@ -294,7 +293,7 @@ function App() {
         startDateTime,
         endDateTime,
         isUrgent: canUseUrgentVeto,
-        note: note.trim(),
+        note: '',
         confirmUrgentOverride: false,
       }
       const result = await attemptBooking(attemptInput)
@@ -328,7 +327,6 @@ function App() {
       await refreshBookings()
 
       setTitle('')
-      setNote('')
       setSelectedRequestedCarOption('noPreference')
 
       if (result.decision === 'created_with_override') {
@@ -448,7 +446,6 @@ function App() {
 
       await refreshBookings()
       setTitle('')
-      setNote('')
       setSelectedRequestedCarOption('noPreference')
 
       if (result.decision === 'created_with_override') {
@@ -510,7 +507,6 @@ function App() {
         endDate: string
         endTime: string
         isUrgent: boolean
-        note: string
       }
     )[K],
   ) => {
@@ -545,7 +541,6 @@ function App() {
       setIsUrgent(value as boolean)
       return
     }
-    setNote(value as string)
   }
 
   const handleSelectCurrentUser = (user: FamilyMember) => {
@@ -651,7 +646,6 @@ function App() {
                 endDate,
                 endTime,
                 isUrgent,
-                note,
               }}
               currentUser={selectedUser}
               conflicts={conflicts}

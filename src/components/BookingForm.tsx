@@ -10,7 +10,6 @@ type BookingFormValues = {
   endDate: string
   endTime: string
   isUrgent: boolean
-  note: string
 }
 
 type BookingFormProps = {
@@ -150,16 +149,6 @@ export default function BookingForm({
               onChange={(event) => onFieldChange('endTime', event.target.value)}
             />
           </span>
-        </label>
-
-        <label>
-          Note (optional)
-          <textarea
-            rows={3}
-            placeholder="Anything important for this booking..."
-            value={values.note}
-            onChange={(event) => onFieldChange('note', event.target.value)}
-          />
         </label>
 
         <label className="urgent-toggle">
