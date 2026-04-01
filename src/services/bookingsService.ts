@@ -94,6 +94,60 @@ export async function createBooking(booking: Booking): Promise<void> {
   }
 }
 
+export type AttemptBookingInput = {
+  bookingId: string
+  title: string
+  userName: Booking['user']
+  requestedCarOption: Booking['requestedCarOption']
+  startDateTime: string
+  endDateTime: string
+  isUrgent: boolean
+  note: string
+}
+
+export type AttemptBookingResult =
+  | { decision: 'created'; message: string }
+  | {
+    decision: 'created_with_override'
+    message: string
+    affectedUserName: Booking['user']
+    affectedStartDateTime: string
+    affectedEndDateTime: string
+    overrideCount: number
+  }
+  | { decision: 'needs_both_cars_decision'; message: string; existingBookingId: string }
+  | { decision: 'blocked'; message: string }
+
+export async function attemptBooking(input: AttemptBookingInput): Promise<AttemptBookingResult> {
+  const { data, error } = await supabase.rpc('attempt_booking', {
+    p_booking_id: input.bookingId,
+    p_title: input.title || null,
+    p_user_name: input.userName,
+    p_requested_car_option: input.requestedCarOption,
+    p_start_datetime: input.startDateTime,
+    p_end_datetime: input.endDateTime,
+    p_is_urgent: input.isUrgent,
+    p_note: input.note || null,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return data as AttemptBookingResult
+}
+
+export async function confirmBothCarsForExistingBooking(existingBookingId: string, userName: Booking['user']): Promise<void> {
+  const { error } = await supabase.rpc('confirm_exact_time_both_cars', {
+    p_booking_id: existingBookingId,
+    p_user_name: userName,
+  })
+
+  if (error) {
+    throw error
+  }
+}
+
 export async function updateBookingById(id: string, patch: BookingPatch): Promise<void> {
   const { error } = await supabase
     .from('bookings')

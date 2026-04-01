@@ -21,11 +21,11 @@ import {
   toInputDateTimeValue,
 } from './utils/bookingUtils'
 import {
-  createBooking,
+  attemptBooking,
+  confirmBothCarsForExistingBooking,
   deleteBookingById,
   listBookings,
   updateBookingById,
-  updateBookingsByIds,
 } from './services/bookingsService'
 import './App.css'
 
@@ -39,6 +39,47 @@ type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
 }
+type Notice = {
+  type: 'success' | 'error'
+  message: string
+}
+
+function resolveAssignedCarsForRequest(
+  sourceBookings: Booking[],
+  requestedCarOption: RequestedCarOption,
+  user: FamilyMember,
+  startDateTime: string,
+  endDateTime: string,
+  canUseUrgentVeto: boolean,
+): CarId[] | null {
+  if (requestedCarOption === 'white') {
+    return ['white']
+  }
+  if (requestedCarOption === 'red') {
+    return ['red']
+  }
+  if (requestedCarOption === 'bothCars') {
+    return ['white', 'red']
+  }
+
+  const preferred = preferredCarForUser(user)
+  const alternative: CarId = preferred === 'white' ? 'red' : 'white'
+  const preferredConflicts = getConflicts(sourceBookings, [preferred], startDateTime, endDateTime)
+  if (preferredConflicts.length === 0) {
+    return [preferred]
+  }
+
+  const alternativeConflicts = getConflicts(sourceBookings, [alternative], startDateTime, endDateTime)
+  if (alternativeConflicts.length === 0) {
+    return [alternative]
+  }
+
+  if (canUseUrgentVeto) {
+    return [preferred]
+  }
+
+  return null
+}
 
 function App() {
   const [activeView, setActiveView] = useState<AppView>('booking')
@@ -50,6 +91,9 @@ function App() {
   const [note, setNote] = useState('')
   const [isUrgent, setIsUrgent] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [isLoadingBookings, setIsLoadingBookings] = useState(true)
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false)
   const [duplicateBookingToMergeId, setDuplicateBookingToMergeId] = useState<string | null>(null)
   const [overrideNotifyPayload, setOverrideNotifyPayload] = useState<OverrideNotifyPayload | null>(null)
   const [isUserSelectionModalOpen, setIsUserSelectionModalOpen] = useState(false)
@@ -71,18 +115,31 @@ function App() {
   const [endDate, setEndDate] = useState(() => splitDateTimeValue(initialEnd).date)
   const [endTime, setEndTime] = useState(() => splitDateTimeValue(initialEnd).time)
 
-  const refreshBookings = async () => {
-    const loaded = await listBookings()
-    setBookings(loaded)
+  const refreshBookings = async (withLoader = false) => {
+    if (withLoader) {
+      setIsLoadingBookings(true)
+    }
+
+    try {
+      const loaded = await listBookings()
+      setBookings(loaded)
+      return true
+    } catch {
+      setNotice({
+        type: 'error',
+        message: 'Could not load shared bookings right now. Please try again in a moment.',
+      })
+      return false
+    } finally {
+      if (withLoader) {
+        setIsLoadingBookings(false)
+      }
+    }
   }
 
   useEffect(() => {
     const initialize = async () => {
-      try {
-        await refreshBookings()
-      } catch {
-        setStatusMessage('Could not load shared bookings from Supabase.')
-      }
+      await refreshBookings(true)
 
       const savedUser = localStorage.getItem(CURRENT_USER_KEY)
       if (savedUser && FAMILY_MEMBERS.includes(savedUser as FamilyMember)) {
@@ -124,47 +181,19 @@ function App() {
   const hasValidRange = isValidDateRange(startDateTime, endDateTime)
   const canUseUrgentVeto = isParent && isUrgent
 
-  const assignedCars = useMemo((): CarId[] | null => {
-    if (!hasValidRange) {
-      return null
-    }
-
-    if (selectedRequestedCarOption === 'white') {
-      return ['white']
-    }
-    if (selectedRequestedCarOption === 'red') {
-      return ['red']
-    }
-    if (selectedRequestedCarOption === 'bothCars') {
-      return ['white', 'red']
-    }
-
-    const preferred = preferredCarForUser(selectedUser)
-    const alternative: CarId = preferred === 'white' ? 'red' : 'white'
-    const preferredConflicts = getConflicts(bookings, [preferred], startDateTime, endDateTime)
-    if (preferredConflicts.length === 0) {
-      return [preferred]
-    }
-
-    const alternativeConflicts = getConflicts(bookings, [alternative], startDateTime, endDateTime)
-    if (alternativeConflicts.length === 0) {
-      return [alternative]
-    }
-
-    if (canUseUrgentVeto) {
-      return [preferred]
-    }
-
-    return null
-  }, [
-    bookings,
-    canUseUrgentVeto,
-    endDateTime,
-    hasValidRange,
-    selectedRequestedCarOption,
-    selectedUser,
-    startDateTime,
-  ])
+  const assignedCars = useMemo(
+    () => (hasValidRange
+      ? resolveAssignedCarsForRequest(
+        bookings,
+        selectedRequestedCarOption,
+        selectedUser,
+        startDateTime,
+        endDateTime,
+        canUseUrgentVeto,
+      )
+      : null),
+    [bookings, canUseUrgentVeto, endDateTime, hasValidRange, selectedRequestedCarOption, selectedUser, startDateTime],
+  )
 
   const conflicts = useMemo(() => {
     if (!hasValidRange || !assignedCars) {
@@ -177,14 +206,8 @@ function App() {
     () => conflicts.filter((booking) => booking.user === selectedUser),
     [conflicts, selectedUser],
   )
-  const overridableConflicts = useMemo(
-    () => conflicts.filter((booking) => booking.user !== selectedUser),
-    [conflicts, selectedUser],
-  )
 
-  const canSubmit = hasValidRange &&
-    assignedCars !== null &&
-    (conflicts.length === 0 || (canUseUrgentVeto && selfConflicts.length === 0))
+  const canSubmit = hasValidRange && !isSubmittingBooking
   const noCarAvailable = hasValidRange && selectedRequestedCarOption === 'noPreference' && assignedCars === null
 
   const pendingOverrideNotification = useMemo(
@@ -198,79 +221,41 @@ function App() {
 
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (isSubmittingBooking) {
+      return
+    }
+
+    setIsSubmittingBooking(true)
     setStatusMessage('')
-
-    if (!canSubmit) {
-      if (selfConflicts.length > 0) {
-        setStatusMessage('You cannot override your own booking. Please delete or change your existing booking first.')
-        return
-      }
-      setStatusMessage(
-        selectedRequestedCarOption === 'noPreference' && assignedCars === null
-          ? 'No car is available in this time range for automatic assignment.'
-          : 'Please choose a valid time range and an available slot.',
-      )
-      return
-    }
-    if (!assignedCars) {
-      return
-    }
-
-    const existingExactSameTimeBooking = bookings.find((existing) =>
-      existing.user === selectedUser &&
-      existing.startDateTime === startDateTime &&
-      existing.endDateTime === endDateTime,
-    )
-
-    if (existingExactSameTimeBooking) {
-      const existingHasBothCars =
-        existingExactSameTimeBooking.assignedCars.includes('white') &&
-        existingExactSameTimeBooking.assignedCars.includes('red')
-      const newHasBothCars = assignedCars.includes('white') && assignedCars.includes('red')
-      const sameAssignedCars =
-        existingExactSameTimeBooking.assignedCars.length === assignedCars.length &&
-        existingExactSameTimeBooking.assignedCars.every((car) => assignedCars.includes(car))
-
-      if (existingHasBothCars || newHasBothCars) {
-        setStatusMessage('You already have a booking for both cars at this exact time. New booking was not created.')
-        return
-      }
-
-      if (sameAssignedCars) {
-        setStatusMessage('You already have this exact booking time and car. New booking was not created.')
-        return
-      }
-
-      setDuplicateBookingToMergeId(existingExactSameTimeBooking.id)
-      return
-    }
-
-    const booking: Booking = {
-      id: crypto.randomUUID(),
-      title: title.trim(),
-      user: selectedUser,
-      requestedCarOption: selectedRequestedCarOption,
-      assignedCars,
-      startDateTime,
-      endDateTime,
-      isUrgent: canUseUrgentVeto,
-      note: note.trim(),
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    }
+    setNotice(null)
 
     try {
-      await createBooking(booking)
+      if (!hasValidRange) {
+        setStatusMessage('Please choose a valid time range and an available slot.')
+        return
+      }
 
-      if (booking.isUrgent && overridableConflicts.length > 0) {
-        await updateBookingsByIds(
-          overridableConflicts.map((item) => item.id),
-          {
-            status: 'overridden',
-            overriddenByBookingId: booking.id,
-            notified: false,
-          },
-        )
+      const bookingId = crypto.randomUUID()
+      const result = await attemptBooking({
+        bookingId,
+        title: title.trim(),
+        userName: selectedUser,
+        requestedCarOption: selectedRequestedCarOption,
+        startDateTime,
+        endDateTime,
+        isUrgent: canUseUrgentVeto,
+        note: note.trim(),
+      })
+
+      if (result.decision === 'blocked') {
+        setStatusMessage(result.message)
+        return
+      }
+
+      if (result.decision === 'needs_both_cars_decision') {
+        setDuplicateBookingToMergeId(result.existingBookingId)
+        setStatusMessage(result.message)
+        return
       }
 
       await refreshBookings()
@@ -279,28 +264,33 @@ function App() {
       setNote('')
       setSelectedRequestedCarOption('noPreference')
 
-      if (booking.isUrgent && overridableConflicts.length > 0) {
-        const affectedBooking = overridableConflicts[0]
-        const formattedDate = new Date(affectedBooking.startDateTime).toLocaleDateString('he-IL')
-        const formattedTime = `${formatTime(affectedBooking.startDateTime)}-${formatTime(affectedBooking.endDateTime)}`
-        const notifyMessage = `היי ${affectedBooking.user},
+      if (result.decision === 'created_with_override') {
+        const formattedDate = new Date(result.affectedStartDateTime).toLocaleDateString('he-IL')
+        const formattedTime = `${formatTime(result.affectedStartDateTime)}-${formatTime(result.affectedEndDateTime)}`
+        const notifyMessage = `היי ${result.affectedUserName},
 מצטער/ת אבל נאלצתי לדרוס את בקשת הרכב שלך בתאריך ${formattedDate} בין השעות ${formattedTime}.
 כדאי לבדוק את האפליקציה לעדכון.`
 
         setOverrideNotifyPayload({
-          affectedName: affectedBooking.user,
+          affectedName: result.affectedUserName,
           message: notifyMessage,
         })
 
-        setStatusMessage(
-          `Urgent booking saved and ${overridableConflicts.length} conflicting booking(s) were marked as overridden.`,
-        )
+        setStatusMessage(result.message)
+        setNotice({
+          type: 'success',
+          message: result.message,
+        })
         return
       }
 
-      setStatusMessage('Booking saved successfully.')
+      setStatusMessage(result.message)
+      setNotice({ type: 'success', message: result.message })
     } catch {
       setStatusMessage('Could not save booking to Supabase. Please try again.')
+      setNotice({ type: 'error', message: 'Could not save booking. Please try again.' })
+    } finally {
+      setIsSubmittingBooking(false)
     }
   }
 
@@ -308,8 +298,10 @@ function App() {
     try {
       await deleteBookingById(bookingId)
       await refreshBookings()
+      setNotice({ type: 'success', message: 'Booking deleted successfully.' })
     } catch {
       setStatusMessage('Could not delete booking from Supabase.')
+      setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
     }
   }
 
@@ -319,15 +311,14 @@ function App() {
     }
 
     try {
-      await updateBookingById(duplicateBookingToMergeId, {
-        requestedCarOption: 'bothCars',
-        assignedCars: ['white', 'red'],
-      })
+      await confirmBothCarsForExistingBooking(duplicateBookingToMergeId, selectedUser)
       await refreshBookings()
       setDuplicateBookingToMergeId(null)
       setStatusMessage('Existing booking was updated to use both cars.')
+      setNotice({ type: 'success', message: 'Booking updated to use both cars.' })
     } catch {
       setStatusMessage('Could not update booking in Supabase.')
+      setNotice({ type: 'error', message: 'Could not update booking. Please try again.' })
     }
   }
 
@@ -342,6 +333,7 @@ function App() {
       await refreshBookings()
     } catch {
       setStatusMessage('Could not update notification state in Supabase.')
+      setNotice({ type: 'error', message: 'Could not update notification state.' })
     }
   }
 
@@ -427,6 +419,13 @@ function App() {
         <p>Simple car booking for Dad, Mom, Noa and Yuval.</p>
       </header>
 
+      {notice && (
+        <section className={`app-notice ${notice.type}`} role="status">
+          <p>{notice.message}</p>
+          <button type="button" onClick={() => setNotice(null)}>Dismiss</button>
+        </section>
+      )}
+
       {pendingOverrideNotification && (
         <section className="override-notice" role="status">
           <div>
@@ -468,7 +467,15 @@ function App() {
       </nav>
 
       <section className="view-content">
-        {activeView === 'booking' && (
+        {isLoadingBookings && (
+          <ViewShell>
+            <section className="panel loading-panel">
+              <p>Loading shared bookings...</p>
+            </section>
+          </ViewShell>
+        )}
+
+        {!isLoadingBookings && activeView === 'booking' && (
           <ViewShell>
             <BookingForm
               values={{
@@ -495,7 +502,7 @@ function App() {
           </ViewShell>
         )}
 
-        {activeView === 'calendar' && (
+        {!isLoadingBookings && activeView === 'calendar' && (
           <ViewShell>
             <WeeklyCalendar
               bookings={bookings}
@@ -505,7 +512,7 @@ function App() {
           </ViewShell>
         )}
 
-        {activeView === 'myBookings' && (
+        {!isLoadingBookings && activeView === 'myBookings' && (
           <ViewShell>
             <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
           </ViewShell>

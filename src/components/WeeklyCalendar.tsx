@@ -258,6 +258,13 @@ export default function WeeklyCalendar({
                   const width = 100 / segment.columnCount
                   const left = segment.columnIndex * width
                   const booking = segment.booking
+                  const cleanTitle = booking.title?.trim() ?? ''
+                  const tooltipParts = [
+                    cleanTitle,
+                    booking.user,
+                    labelForAssignedCars(booking.assignedCars),
+                    `${formatDateTime(booking.startDateTime)} - ${formatDateTime(booking.endDateTime)}`,
+                  ].filter(Boolean)
 
                   return (
                     <article
@@ -269,9 +276,9 @@ export default function WeeklyCalendar({
                         left: `calc(${left}% + 2px)`,
                         width: `calc(${width}% - 4px)`,
                       }}
-                      title={`${booking.title?.trim() || 'Untitled booking'} | ${booking.user} | ${labelForAssignedCars(booking.assignedCars)} | ${formatDateTime(booking.startDateTime)} - ${formatDateTime(booking.endDateTime)}`}
+                      title={tooltipParts.join(' | ')}
                     >
-                      <p className="event-title">{booking.title?.trim() || 'Untitled booking'}</p>
+                      {cleanTitle && <p className="event-title">{cleanTitle}</p>}
                       {height >= 40 && (
                         <p className="event-meta">
                           {booking.user} - {labelForAssignedCars(booking.assignedCars)}
