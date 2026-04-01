@@ -4,6 +4,7 @@ import BookingForm from './components/BookingForm'
 import ConfirmModal from './components/ConfirmModal'
 import MyBookings from './components/MyBookings'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
+import UrgentOverrideSelectionModal from './components/UrgentOverrideSelectionModal'
 import ViewShell from './components/ViewShell'
 import UserSelectionModal from './components/UserSelectionModal'
 import WeeklyCalendar from './components/WeeklyCalendar'
@@ -25,6 +26,7 @@ import {
   confirmBothCarsForExistingBooking,
   deleteBookingById,
   listBookings,
+  type UrgentConflictCandidate,
   updateBookingById,
 } from './services/bookingsService'
 import type { AttemptBookingInput } from './services/bookingsService'
@@ -42,10 +44,8 @@ type OverrideNotifyPayload = {
 }
 type PendingUrgentConfirmation = {
   attemptInput: AttemptBookingInput
-  affectedUserName: FamilyMember
-  affectedStartDateTime: string
-  affectedEndDateTime: string
-  conflictingCars: CarId[]
+  conflicts: UrgentConflictCandidate[]
+  selectedConflictIds: string[]
 }
 type Notice = {
   type: 'success' | 'error' | 'warning'
@@ -172,6 +172,7 @@ function App() {
       return
     }
     localStorage.setItem(CURRENT_USER_KEY, selectedUser)
+    setNotice(null)
     if (!PARENTS.includes(selectedUser)) {
       setIsUrgent(false)
     }
@@ -214,13 +215,21 @@ function App() {
     () => conflicts.filter((booking) => booking.user === selectedUser),
     [conflicts, selectedUser],
   )
-  const whiteAvailable = useMemo(
-    () => hasValidRange && getConflicts(bookings, ['white'], startDateTime, endDateTime).length === 0,
+  const whiteConflicts = useMemo(
+    () => (hasValidRange ? getConflicts(bookings, ['white'], startDateTime, endDateTime) : []),
     [bookings, endDateTime, hasValidRange, startDateTime],
   )
-  const redAvailable = useMemo(
-    () => hasValidRange && getConflicts(bookings, ['red'], startDateTime, endDateTime).length === 0,
+  const redConflicts = useMemo(
+    () => (hasValidRange ? getConflicts(bookings, ['red'], startDateTime, endDateTime) : []),
     [bookings, endDateTime, hasValidRange, startDateTime],
+  )
+  const whiteAvailable = useMemo(
+    () => hasValidRange && whiteConflicts.length === 0,
+    [hasValidRange, whiteConflicts],
+  )
+  const redAvailable = useMemo(
+    () => hasValidRange && redConflicts.length === 0,
+    [hasValidRange, redConflicts],
   )
 
   const canSubmit = hasValidRange && !isSubmittingBooking
@@ -264,6 +273,7 @@ function App() {
       const result = await attemptBooking(attemptInput)
 
       if (result.decision === 'blocked') {
+        await refreshBookings()
         setNotice({ type: 'error', message: result.message })
         return
       }
@@ -277,10 +287,8 @@ function App() {
       if (result.decision === 'needs_urgent_confirmation') {
         setPendingUrgentConfirmation({
           attemptInput,
-          affectedUserName: result.affectedUserName,
-          affectedStartDateTime: result.affectedStartDateTime,
-          affectedEndDateTime: result.affectedEndDateTime,
-          conflictingCars: result.conflictingCars,
+          conflicts: result.conflictingBookings,
+          selectedConflictIds: result.conflictingBookings.map((item) => item.id),
         })
         setNotice({ type: 'warning', message: result.message })
         return
@@ -359,14 +367,21 @@ function App() {
       const result = await attemptBooking({
         ...pendingUrgentConfirmation.attemptInput,
         confirmUrgentOverride: true,
+        overrideBookingIds: pendingUrgentConfirmation.selectedConflictIds,
       })
       setPendingUrgentConfirmation(null)
 
       if (result.decision === 'blocked') {
+        await refreshBookings()
         setNotice({ type: 'error', message: result.message })
         return
       }
       if (result.decision === 'needs_urgent_confirmation') {
+        setPendingUrgentConfirmation({
+          attemptInput: pendingUrgentConfirmation.attemptInput,
+          conflicts: result.conflictingBookings,
+          selectedConflictIds: result.conflictingBookings.map((item) => item.id),
+        })
         setNotice({ type: 'warning', message: result.message })
         return
       }
@@ -407,6 +422,23 @@ function App() {
     setNotice({ type: 'warning', message: 'Urgent override was cancelled.' })
   }
 
+  const handleToggleUrgentConflict = (bookingId: string, checked: boolean) => {
+    setPendingUrgentConfirmation((current) => {
+      if (!current) {
+        return current
+      }
+
+      const nextSelected = checked
+        ? Array.from(new Set([...current.selectedConflictIds, bookingId]))
+        : current.selectedConflictIds.filter((id) => id !== bookingId)
+
+      return {
+        ...current,
+        selectedConflictIds: nextSelected,
+      }
+    })
+  }
+
   const markBookingNotificationSeen = async (bookingId: string) => {
     try {
       await updateBookingById(bookingId, { notified: true })
@@ -431,6 +463,9 @@ function App() {
       }
     )[K],
   ) => {
+    if (notice) {
+      setNotice(null)
+    }
     if (key === 'title') {
       setTitle(value as string)
       return
@@ -570,6 +605,8 @@ function App() {
               currentUser={selectedUser}
               conflicts={conflicts}
               selfConflicts={selfConflicts}
+              whiteConflicts={whiteConflicts}
+              redConflicts={redConflicts}
               isValidRange={hasValidRange}
               noCarAvailable={noCarAvailable}
               isParent={isParent}
@@ -609,16 +646,13 @@ function App() {
         onSecondary={handleCancelDuplicateMerge}
       />
 
-      <ConfirmModal
+      <UrgentOverrideSelectionModal
         isOpen={pendingUrgentConfirmation !== null}
-        title="Confirm urgent override"
-        message={pendingUrgentConfirmation
-          ? `This urgent booking will override ${pendingUrgentConfirmation.affectedUserName}'s booking (${formatDateTime(pendingUrgentConfirmation.affectedStartDateTime)} - ${formatDateTime(pendingUrgentConfirmation.affectedEndDateTime)}) for ${labelForAssignedCars(pendingUrgentConfirmation.conflictingCars)}. Continue?`
-          : ''}
-        primaryLabel="Override booking"
-        secondaryLabel="Cancel"
-        onPrimary={handleConfirmUrgentOverride}
-        onSecondary={handleCancelUrgentOverride}
+        conflicts={pendingUrgentConfirmation?.conflicts ?? []}
+        selectedIds={pendingUrgentConfirmation?.selectedConflictIds ?? []}
+        onToggle={handleToggleUrgentConflict}
+        onConfirm={handleConfirmUrgentOverride}
+        onCancel={handleCancelUrgentOverride}
       />
 
       <UrgentOverrideModal

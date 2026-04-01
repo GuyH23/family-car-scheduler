@@ -33,6 +33,13 @@ const HOUR_HEIGHT = 64
 const GRID_HEIGHT = HOURS_IN_DAY * HOUR_HEIGHT
 const DEFAULT_SCROLL_MINUTE = 8 * 60
 
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function minutesSinceDayStart(dateValue: string, dayStart: Date): number {
   const date = new Date(dateValue)
   return (date.getTime() - dayStart.getTime()) / 60000
@@ -191,6 +198,30 @@ export default function WeeklyCalendar({
           </button>
         </div>
       </div>
+
+      {subView === 'daily' && (
+        <div className="week-jump-row">
+          <label className="week-nav-date-jump">
+            Jump to date
+            <input
+              type="date"
+              value={toDateInputValue(dayDate)}
+              onChange={(event) => {
+                const value = event.target.value
+                if (!value) {
+                  return
+                }
+                const nextDate = new Date(`${value}T00:00:00`)
+                if (Number.isNaN(nextDate.getTime())) {
+                  return
+                }
+                setDayDate(nextDate)
+                setWeekStart(getWeekStart(nextDate))
+              }}
+            />
+          </label>
+        </div>
+      )}
 
       <div className="week-nav">
         {subView === 'weekly' && (

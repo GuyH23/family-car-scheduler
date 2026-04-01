@@ -274,6 +274,17 @@
   color: #a4121f;
 }
 
+.availability.warning {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.availability.partial {
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #d8dee8;
+}
+
 .availability-conflicts {
   margin: 8px 0 0;
   padding-left: 18px;
@@ -373,6 +384,29 @@
 .week-nav strong {
   font-size: 0.9rem;
   text-align: center;
+}
+
+.week-jump-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.week-nav-date-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.week-nav-date-jump input {
+  border: 1px solid #c4ccda;
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 0.82rem;
+  color: #1e293b;
 }
 
 .time-grid-shell {
@@ -793,6 +827,41 @@
   transform: translateY(-1px);
 }
 
+.modal-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+}
+
+.override-selection-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.override-selection-list li + li {
+  border-top: 1px solid #e2e8f0;
+}
+
+.override-selection-list label {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.override-selection-list input {
+  margin-top: 2px;
+}
+
 .user-select-grid {
   margin-top: 10px;
   display: grid;
@@ -871,6 +940,15 @@
   .week-nav strong {
     width: 100%;
     order: -1;
+  }
+
+  .week-jump-row {
+    margin-bottom: 8px;
+  }
+
+  .week-nav-date-jump {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .time-grid-shell {

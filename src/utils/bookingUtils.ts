@@ -83,8 +83,11 @@ export function combineDateAndTime(date: string, time: string): string {
   if (!date || !time) {
     return ''
   }
-
-  return `${date}T${time}`
+  const localDateTime = new Date(`${date}T${time}:00`)
+  if (Number.isNaN(localDateTime.getTime())) {
+    return ''
+  }
+  return localDateTime.toISOString()
 }
 
 export function getWeekStart(date: Date): Date {

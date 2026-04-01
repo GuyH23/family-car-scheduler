@@ -58,7 +58,8 @@ create or replace function public.attempt_booking(
   p_end_datetime timestamptz,
   p_is_urgent boolean,
   p_note text,
-  p_confirm_urgent_override boolean default false
+  p_confirm_urgent_override boolean default false,
+  p_override_booking_ids uuid[] default null
 )
 returns jsonb
 language plpgsql
@@ -80,6 +81,7 @@ declare
   affected_user_name text;
   affected_start_datetime timestamptz;
   affected_end_datetime timestamptz;
+  conflicting_bookings jsonb := '[]'::jsonb;
   white_available boolean;
   red_available boolean;
   available_count integer;
@@ -308,6 +310,28 @@ begin
   end if;
 
   if has_other_conflicts and p_is_urgent and is_parent and not p_confirm_urgent_override then
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', b.id,
+          'userName', b.user_name,
+          'title', coalesce(b.title, ''),
+          'startDateTime', b.start_datetime,
+          'endDateTime', b.end_datetime,
+          'assignedCars', b.assigned_cars
+        )
+        order by b.start_datetime, b.created_at
+      ),
+      '[]'::jsonb
+    )
+    into conflicting_bookings
+    from public.bookings b
+    where b.status = 'active'
+      and b.user_name <> p_user_name
+      and b.start_datetime < p_end_datetime
+      and b.end_datetime > p_start_datetime
+      and b.assigned_cars && resolved_assigned_cars;
+
     select b.user_name, b.start_datetime, b.end_datetime
     into affected_user_name, affected_start_datetime, affected_end_datetime
     from public.bookings b
@@ -325,8 +349,34 @@ begin
       'affectedUserName', affected_user_name,
       'affectedStartDateTime', affected_start_datetime,
       'affectedEndDateTime', affected_end_datetime,
-      'conflictingCars', resolved_assigned_cars
+      'conflictingCars', resolved_assigned_cars,
+      'conflictingBookings', conflicting_bookings
     );
+  end if;
+
+  if has_other_conflicts and p_is_urgent and is_parent and p_confirm_urgent_override then
+    if p_override_booking_ids is null or coalesce(array_length(p_override_booking_ids, 1), 0) = 0 then
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'Please select at least one booking to override.'
+      );
+    end if;
+
+    if exists (
+      select 1
+      from public.bookings b
+      where b.status = 'active'
+        and b.user_name <> p_user_name
+        and b.start_datetime < p_end_datetime
+        and b.end_datetime > p_start_datetime
+        and b.assigned_cars && resolved_assigned_cars
+        and not (b.id = any(p_override_booking_ids))
+    ) then
+      return jsonb_build_object(
+        'decision', 'blocked',
+        'message', 'Selected overrides are not enough. Please select all conflicting bookings in this slot.'
+      );
+    end if;
   end if;
 
   insert into public.bookings (
@@ -368,6 +418,7 @@ begin
         and start_datetime < p_end_datetime
         and end_datetime > p_start_datetime
         and assigned_cars && resolved_assigned_cars
+        and (p_override_booking_ids is null or id = any(p_override_booking_ids))
       for update
     ),
     updated as (
