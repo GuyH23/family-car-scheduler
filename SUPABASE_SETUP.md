@@ -228,18 +228,7 @@ begin
   );
 
   if exact_existing_booking_id is not null then
-    exact_effective_cars := (
-      select array_agg(distinct car order by car)
-      from (
-        select unnest(exact_reserved_cars) as car
-        union all
-        select unnest(resolved_assigned_cars) as car
-      ) merged
-    );
-
-    if (has_exact_white and has_exact_red)
-      or (array['white', 'red']::text[] <@ exact_effective_cars)
-    then
+    if has_exact_white and has_exact_red then
       return jsonb_build_object(
         'decision', 'blocked',
         'message', 'You already have a booking for both cars at this exact time. New booking was not created.'
@@ -252,6 +241,15 @@ begin
         'message', 'You already have this exact booking time and car. New booking was not created.'
       );
     end if;
+
+    exact_effective_cars := (
+      select array_agg(distinct car order by car)
+      from (
+        select unnest(exact_reserved_cars) as car
+        union all
+        select unnest(resolved_assigned_cars) as car
+      ) merged
+    );
 
     if exists (
       select 1
