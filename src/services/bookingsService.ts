@@ -125,7 +125,7 @@ export type AttemptBookingResult =
     affectedStartDateTime: string
     affectedEndDateTime: string
     conflictingCars: Booking['assignedCars']
-    conflictingBookings: UrgentConflictCandidate[]
+    conflictingBookings?: UrgentConflictCandidate[]
   }
   | {
     decision: 'created_with_override'

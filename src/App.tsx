@@ -244,6 +244,26 @@ function App() {
     [bookings, selectedUser],
   )
 
+  const buildUrgentConflictCandidates = (sourceBookings: Booking[]): UrgentConflictCandidate[] => {
+    const unique = new Map<string, UrgentConflictCandidate>()
+    for (const booking of sourceBookings) {
+      if (booking.status !== 'active' || booking.user === selectedUser) {
+        continue
+      }
+      if (!unique.has(booking.id)) {
+        unique.set(booking.id, {
+          id: booking.id,
+          userName: booking.user,
+          title: booking.title?.trim() ?? '',
+          startDateTime: booking.startDateTime,
+          endDateTime: booking.endDateTime,
+          assignedCars: booking.assignedCars,
+        })
+      }
+    }
+    return [...unique.values()]
+  }
+
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isSubmittingBooking) {
@@ -285,12 +305,16 @@ function App() {
       }
 
       if (result.decision === 'needs_urgent_confirmation') {
+        const conflictsForSelection = result.conflictingBookings?.length
+          ? result.conflictingBookings
+          : buildUrgentConflictCandidates(conflicts)
+
         setPendingUrgentConfirmation({
           attemptInput,
-          conflicts: result.conflictingBookings,
-          selectedConflictIds: result.conflictingBookings.map((item) => item.id),
+          conflicts: conflictsForSelection,
+          selectedConflictIds: conflictsForSelection.map((item) => item.id),
         })
-        setNotice({ type: 'warning', message: result.message })
+        setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
       }
 
@@ -377,12 +401,16 @@ function App() {
         return
       }
       if (result.decision === 'needs_urgent_confirmation') {
+        const conflictsForSelection = result.conflictingBookings?.length
+          ? result.conflictingBookings
+          : buildUrgentConflictCandidates(conflicts)
+
         setPendingUrgentConfirmation({
           attemptInput: pendingUrgentConfirmation.attemptInput,
-          conflicts: result.conflictingBookings,
-          selectedConflictIds: result.conflictingBookings.map((item) => item.id),
+          conflicts: conflictsForSelection,
+          selectedConflictIds: conflictsForSelection.map((item) => item.id),
         })
-        setNotice({ type: 'warning', message: result.message })
+        setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
       }
       if (result.decision === 'needs_both_cars_decision') {
