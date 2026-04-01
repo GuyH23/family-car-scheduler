@@ -75,6 +75,10 @@ export default function BookingForm({
   const whiteOwner = formatConflictOwner(whiteConflict)
   const redOwner = formatConflictOwner(redConflict)
   const showUrgentOverrideSummary = isValidRange && values.isUrgent && ownConflictCount === 0 && otherConflictCount > 0
+  const hasDirectConflictMessage =
+    (isValidRange && values.requestedCarOption === 'red' && !redAvailable && Boolean(redOwner)) ||
+    (isValidRange && values.requestedCarOption === 'white' && !whiteAvailable && Boolean(whiteOwner)) ||
+    (isValidRange && values.requestedCarOption === 'bothCars' && freeCarCount === 1)
   const conflictDetails = conflicts.flatMap((booking) =>
     booking.assignedCars.map((car) => {
       const carLabel = car === 'white' ? 'White' : 'Red'
@@ -216,7 +220,7 @@ export default function BookingForm({
               This slot overlaps your own booking(s) and other booking(s). Urgent can override other users, but not your own bookings.
             </p>
           )}
-          {showBusyDetails && !showUrgentOverrideSummary && conflictDetails.length > 0 && (
+          {showBusyDetails && !showUrgentOverrideSummary && !hasDirectConflictMessage && conflictDetails.length > 0 && (
             <ul className="availability-conflicts">
               {conflictDetails.map((detail) => (
                 <li key={detail.key}>{detail.message}</li>
