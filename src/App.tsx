@@ -16,14 +16,19 @@ import {
   getConflicts,
   isValidDateRange,
   labelForAssignedCars,
-  parseStoredBookings,
   preferredCarForUser,
   splitDateTimeValue,
   toInputDateTimeValue,
 } from './utils/bookingUtils'
+import {
+  createBooking,
+  deleteBookingById,
+  listBookings,
+  updateBookingById,
+  updateBookingsByIds,
+} from './services/bookingsService'
 import './App.css'
 
-const STORAGE_KEY = 'carScheduler.bookings.v1'
 const CURRENT_USER_KEY = 'carScheduler.currentUser.v1'
 const THEME_KEY = 'carScheduler.theme.v1'
 
@@ -66,33 +71,36 @@ function App() {
   const [endDate, setEndDate] = useState(() => splitDateTimeValue(initialEnd).date)
   const [endTime, setEndTime] = useState(() => splitDateTimeValue(initialEnd).time)
 
+  const refreshBookings = async () => {
+    const loaded = await listBookings()
+    setBookings(loaded)
+  }
+
   useEffect(() => {
-    const parsed = parseStoredBookings(localStorage.getItem(STORAGE_KEY))
-    const hasStoredBookings = localStorage.getItem(STORAGE_KEY)
-    if (parsed.length === 0 && hasStoredBookings) {
-      localStorage.removeItem(STORAGE_KEY)
-    } else {
-      setBookings(parsed)
+    const initialize = async () => {
+      try {
+        await refreshBookings()
+      } catch {
+        setStatusMessage('Could not load shared bookings from Supabase.')
+      }
+
+      const savedUser = localStorage.getItem(CURRENT_USER_KEY)
+      if (savedUser && FAMILY_MEMBERS.includes(savedUser as FamilyMember)) {
+        setSelectedUser(savedUser as FamilyMember)
+        setIsUserSelectionModalOpen(false)
+      } else {
+        setIsUserSelectionModalOpen(true)
+      }
+      setHasLoadedUserPreference(true)
+
+      const savedTheme = localStorage.getItem(THEME_KEY)
+      if (savedTheme === 'blue' || savedTheme === 'pink') {
+        setTheme(savedTheme)
+      }
     }
 
-    const savedUser = localStorage.getItem(CURRENT_USER_KEY)
-    if (savedUser && FAMILY_MEMBERS.includes(savedUser as FamilyMember)) {
-      setSelectedUser(savedUser as FamilyMember)
-      setIsUserSelectionModalOpen(false)
-    } else {
-      setIsUserSelectionModalOpen(true)
-    }
-    setHasLoadedUserPreference(true)
-
-    const savedTheme = localStorage.getItem(THEME_KEY)
-    if (savedTheme === 'blue' || savedTheme === 'pink') {
-      setTheme(savedTheme)
-    }
+    initialize()
   }, [])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings))
-  }, [bookings])
 
   useEffect(() => {
     if (!hasLoadedUserPreference || isUserSelectionModalOpen) {
@@ -188,7 +196,7 @@ function App() {
     [bookings, selectedUser],
   )
 
-  const submitBooking = (event: FormEvent<HTMLFormElement>) => {
+  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setStatusMessage('')
 
@@ -251,68 +259,76 @@ function App() {
       createdAt: new Date().toISOString(),
     }
 
-    setBookings((current) => {
+    try {
+      await createBooking(booking)
+
       if (booking.isUrgent && overridableConflicts.length > 0) {
-        const conflictIds = new Set(overridableConflicts.map((item) => item.id))
-        const updated = current.map((existing) => (
-          conflictIds.has(existing.id)
-            ? { ...existing, status: 'overridden' as const, overriddenByBookingId: booking.id, notified: false }
-            : existing
-        ))
-        return [...updated, booking]
+        await updateBookingsByIds(
+          overridableConflicts.map((item) => item.id),
+          {
+            status: 'overridden',
+            overriddenByBookingId: booking.id,
+            notified: false,
+          },
+        )
       }
 
-      return [...current, booking]
-    })
+      await refreshBookings()
 
-    setTitle('')
-    setNote('')
-    setSelectedRequestedCarOption('noPreference')
+      setTitle('')
+      setNote('')
+      setSelectedRequestedCarOption('noPreference')
 
-    if (booking.isUrgent && overridableConflicts.length > 0) {
-      const affectedBooking = overridableConflicts[0]
-      const formattedDate = new Date(affectedBooking.startDateTime).toLocaleDateString('he-IL')
-      const formattedTime = `${formatTime(affectedBooking.startDateTime)}-${formatTime(affectedBooking.endDateTime)}`
-      const notifyMessage = `היי ${affectedBooking.user},
+      if (booking.isUrgent && overridableConflicts.length > 0) {
+        const affectedBooking = overridableConflicts[0]
+        const formattedDate = new Date(affectedBooking.startDateTime).toLocaleDateString('he-IL')
+        const formattedTime = `${formatTime(affectedBooking.startDateTime)}-${formatTime(affectedBooking.endDateTime)}`
+        const notifyMessage = `היי ${affectedBooking.user},
 מצטער/ת אבל נאלצתי לדרוס את בקשת הרכב שלך בתאריך ${formattedDate} בין השעות ${formattedTime}.
 כדאי לבדוק את האפליקציה לעדכון.`
 
-      setOverrideNotifyPayload({
-        affectedName: affectedBooking.user,
-        message: notifyMessage,
-      })
+        setOverrideNotifyPayload({
+          affectedName: affectedBooking.user,
+          message: notifyMessage,
+        })
 
-      setStatusMessage(
-        `Urgent booking saved and ${overridableConflicts.length} conflicting booking(s) were marked as overridden.`,
-      )
-      return
+        setStatusMessage(
+          `Urgent booking saved and ${overridableConflicts.length} conflicting booking(s) were marked as overridden.`,
+        )
+        return
+      }
+
+      setStatusMessage('Booking saved successfully.')
+    } catch {
+      setStatusMessage('Could not save booking to Supabase. Please try again.')
     }
-
-    setStatusMessage('Booking saved successfully.')
   }
 
-  const handleDeleteBooking = (bookingId: string) => {
-    setBookings((current) => current.filter((booking) => booking.id !== bookingId))
+  const handleDeleteBooking = async (bookingId: string) => {
+    try {
+      await deleteBookingById(bookingId)
+      await refreshBookings()
+    } catch {
+      setStatusMessage('Could not delete booking from Supabase.')
+    }
   }
 
-  const handleUseBothCarsForDuplicate = () => {
+  const handleUseBothCarsForDuplicate = async () => {
     if (!duplicateBookingToMergeId) {
       return
     }
 
-    setBookings((current) =>
-      current.map((existing) =>
-        existing.id === duplicateBookingToMergeId
-          ? {
-            ...existing,
-            requestedCarOption: 'bothCars',
-            assignedCars: ['white', 'red'],
-          }
-          : existing,
-      ),
-    )
-    setDuplicateBookingToMergeId(null)
-    setStatusMessage('Existing booking was updated to use both cars.')
+    try {
+      await updateBookingById(duplicateBookingToMergeId, {
+        requestedCarOption: 'bothCars',
+        assignedCars: ['white', 'red'],
+      })
+      await refreshBookings()
+      setDuplicateBookingToMergeId(null)
+      setStatusMessage('Existing booking was updated to use both cars.')
+    } catch {
+      setStatusMessage('Could not update booking in Supabase.')
+    }
   }
 
   const handleCancelDuplicateMerge = () => {
@@ -320,10 +336,13 @@ function App() {
     setStatusMessage('Booking creation cancelled.')
   }
 
-  const markBookingNotificationSeen = (bookingId: string) => {
-    setBookings((current) => current.map((booking) => (
-      booking.id === bookingId ? { ...booking, notified: true } : booking
-    )))
+  const markBookingNotificationSeen = async (bookingId: string) => {
+    try {
+      await updateBookingById(bookingId, { notified: true })
+      await refreshBookings()
+    } catch {
+      setStatusMessage('Could not update notification state in Supabase.')
+    }
   }
 
   const onFieldChange = <K extends BookingFormField>(
