@@ -195,7 +195,8 @@ export default function BookingForm({
           {isValidRange && !showUrgentOverrideSummary && noCarAvailable && (!whiteOwner || !redOwner) && <p>Both cars are already occupied in this time range.</p>}
           {isValidRange && ownConflictCount > 0 && otherConflictCount === 0 && (
             <p>
-              This slot is not available for you because it overlaps your own booking(s). Urgent cannot override your own bookings.
+              This slot is not available for you because it overlaps your own booking(s).
+              {values.isUrgent ? ' Urgent cannot override your own bookings.' : ''}
             </p>
           )}
           {isValidRange && !showUrgentOverrideSummary && ownConflictCount === 0 && otherConflictCount > 0 && values.requestedCarOption !== 'noPreference' && (
