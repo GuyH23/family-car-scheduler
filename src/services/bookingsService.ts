@@ -139,7 +139,7 @@ export type AttemptBookingResult =
   | { decision: 'blocked'; message: string }
 
 export async function attemptBooking(input: AttemptBookingInput): Promise<AttemptBookingResult> {
-  const { data, error } = await supabase.rpc('attempt_booking', {
+  const payload: Record<string, unknown> = {
     p_booking_id: input.bookingId,
     p_title: input.title || null,
     p_user_name: input.userName,
@@ -149,8 +149,13 @@ export async function attemptBooking(input: AttemptBookingInput): Promise<Attemp
     p_is_urgent: input.isUrgent,
     p_note: input.note || null,
     p_confirm_urgent_override: input.confirmUrgentOverride ?? false,
-    p_override_booking_ids: input.overrideBookingIds ?? null,
-  })
+  }
+
+  if (input.overrideBookingIds !== undefined) {
+    payload.p_override_booking_ids = input.overrideBookingIds
+  }
+
+  const { data, error } = await supabase.rpc('attempt_booking', payload)
 
   if (error) {
     throw error

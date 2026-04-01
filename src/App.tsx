@@ -45,7 +45,7 @@ type OverrideNotifyPayload = {
 type PendingUrgentConfirmation = {
   attemptInput: AttemptBookingInput
   conflicts: UrgentConflictCandidate[]
-  selectedConflictIds: string[]
+  selectedConflictId: string | null
 }
 type Notice = {
   type: 'success' | 'error' | 'warning'
@@ -264,6 +264,13 @@ function App() {
     return [...unique.values()]
   }
 
+  const getUrgentSelectionCandidates = (attemptInput: AttemptBookingInput): UrgentConflictCandidate[] => {
+    if (attemptInput.requestedCarOption === 'noPreference') {
+      return buildUrgentConflictCandidates([...whiteConflicts, ...redConflicts])
+    }
+    return buildUrgentConflictCandidates(conflicts)
+  }
+
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isSubmittingBooking) {
@@ -307,12 +314,12 @@ function App() {
       if (result.decision === 'needs_urgent_confirmation') {
         const conflictsForSelection = result.conflictingBookings?.length
           ? result.conflictingBookings
-          : buildUrgentConflictCandidates(conflicts)
+          : getUrgentSelectionCandidates(attemptInput)
 
         setPendingUrgentConfirmation({
           attemptInput,
           conflicts: conflictsForSelection,
-          selectedConflictIds: conflictsForSelection.map((item) => item.id),
+          selectedConflictId: conflictsForSelection[0]?.id ?? null,
         })
         setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
@@ -390,8 +397,28 @@ function App() {
     try {
       const result = await attemptBooking({
         ...pendingUrgentConfirmation.attemptInput,
+        requestedCarOption: (() => {
+          if (pendingUrgentConfirmation.attemptInput.requestedCarOption !== 'noPreference') {
+            return pendingUrgentConfirmation.attemptInput.requestedCarOption
+          }
+          const selectedConflicts = pendingUrgentConfirmation.conflicts.filter((item) =>
+            item.id === pendingUrgentConfirmation.selectedConflictId,
+          )
+          const selectedCars = new Set<CarId>()
+          for (const item of selectedConflicts) {
+            for (const car of item.assignedCars) {
+              selectedCars.add(car)
+            }
+          }
+          if (selectedCars.size === 1) {
+            return [...selectedCars][0]
+          }
+          return pendingUrgentConfirmation.attemptInput.requestedCarOption
+        })(),
         confirmUrgentOverride: true,
-        overrideBookingIds: pendingUrgentConfirmation.selectedConflictIds,
+        overrideBookingIds: pendingUrgentConfirmation.selectedConflictId
+          ? [pendingUrgentConfirmation.selectedConflictId]
+          : [],
       })
       setPendingUrgentConfirmation(null)
 
@@ -403,12 +430,12 @@ function App() {
       if (result.decision === 'needs_urgent_confirmation') {
         const conflictsForSelection = result.conflictingBookings?.length
           ? result.conflictingBookings
-          : buildUrgentConflictCandidates(conflicts)
+          : getUrgentSelectionCandidates(pendingUrgentConfirmation.attemptInput)
 
         setPendingUrgentConfirmation({
           attemptInput: pendingUrgentConfirmation.attemptInput,
           conflicts: conflictsForSelection,
-          selectedConflictIds: conflictsForSelection.map((item) => item.id),
+          selectedConflictId: conflictsForSelection[0]?.id ?? null,
         })
         setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
@@ -450,19 +477,15 @@ function App() {
     setNotice({ type: 'warning', message: 'Urgent override was cancelled.' })
   }
 
-  const handleToggleUrgentConflict = (bookingId: string, checked: boolean) => {
+  const handleSelectUrgentConflict = (bookingId: string) => {
     setPendingUrgentConfirmation((current) => {
       if (!current) {
         return current
       }
 
-      const nextSelected = checked
-        ? Array.from(new Set([...current.selectedConflictIds, bookingId]))
-        : current.selectedConflictIds.filter((id) => id !== bookingId)
-
       return {
         ...current,
-        selectedConflictIds: nextSelected,
+        selectedConflictId: bookingId,
       }
     })
   }
@@ -677,8 +700,8 @@ function App() {
       <UrgentOverrideSelectionModal
         isOpen={pendingUrgentConfirmation !== null}
         conflicts={pendingUrgentConfirmation?.conflicts ?? []}
-        selectedIds={pendingUrgentConfirmation?.selectedConflictIds ?? []}
-        onToggle={handleToggleUrgentConflict}
+        selectedId={pendingUrgentConfirmation?.selectedConflictId ?? null}
+        onSelect={handleSelectUrgentConflict}
         onConfirm={handleConfirmUrgentOverride}
         onCancel={handleCancelUrgentOverride}
       />

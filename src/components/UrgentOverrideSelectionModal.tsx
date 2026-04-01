@@ -4,8 +4,8 @@ import { formatDateTime, labelForAssignedCars } from '../utils/bookingUtils'
 type UrgentOverrideSelectionModalProps = {
   isOpen: boolean
   conflicts: UrgentConflictCandidate[]
-  selectedIds: string[]
-  onToggle: (bookingId: string, checked: boolean) => void
+  selectedId: string | null
+  onSelect: (bookingId: string) => void
   onConfirm: () => void
   onCancel: () => void
 }
@@ -13,8 +13,8 @@ type UrgentOverrideSelectionModalProps = {
 export default function UrgentOverrideSelectionModal({
   isOpen,
   conflicts,
-  selectedIds,
-  onToggle,
+  selectedId,
+  onSelect,
   onConfirm,
   onCancel,
 }: UrgentOverrideSelectionModalProps) {
@@ -30,15 +30,16 @@ export default function UrgentOverrideSelectionModal({
 
         <ul className="override-selection-list">
           {conflicts.map((conflict) => {
-            const isSelected = selectedIds.includes(conflict.id)
+            const isSelected = selectedId === conflict.id
             const title = conflict.title.trim()
             return (
               <li key={conflict.id}>
                 <label>
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="urgent-override-selection"
                     checked={isSelected}
-                    onChange={(event) => onToggle(conflict.id, event.target.checked)}
+                    onChange={() => onSelect(conflict.id)}
                   />
                   <span>
                     <strong>{conflict.userName}</strong> - {labelForAssignedCars(conflict.assignedCars)}<br />
@@ -55,8 +56,8 @@ export default function UrgentOverrideSelectionModal({
           <button type="button" className="modal-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="modal-primary" onClick={onConfirm} disabled={selectedIds.length === 0}>
-            Override selected
+          <button type="button" className="modal-primary" onClick={onConfirm} disabled={!selectedId}>
+            Override selected booking
           </button>
         </div>
       </div>
