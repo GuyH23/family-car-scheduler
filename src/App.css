@@ -209,10 +209,23 @@
   font-family: inherit;
 }
 
-.date-time-row {
+.booking-date-time-row {
   display: grid;
-  grid-template-columns: 1fr 120px;
+  grid-template-columns: minmax(138px, 170px) auto minmax(108px, 130px) auto minmax(108px, 130px);
   gap: 8px;
+  align-items: center;
+  justify-content: start;
+}
+
+.time-inline-label {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.booking-date-input {
+  max-width: 170px;
 }
 
 .booking-form button {
@@ -339,10 +352,10 @@
 
 .calendar-subtabs {
   display: inline-grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   justify-self: center;
-  width: min(260px, 100%);
+  width: min(360px, 100%);
 }
 
 .calendar-subtabs button {
@@ -417,6 +430,107 @@
   max-width: 100%;
   min-width: 0;
   max-height: min(78vh, 860px);
+}
+
+.agenda-view {
+  display: grid;
+  gap: 10px;
+}
+
+.agenda-snapshot {
+  border: 1px solid #dbe5f1;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.agenda-snapshot h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.agenda-snapshot p {
+  margin: 2px 0 0;
+  font-size: 0.86rem;
+  color: #334155;
+}
+
+.agenda-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.agenda-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.agenda-group h4 {
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  color: #334155;
+}
+
+.agenda-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.agenda-item {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.agenda-item-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.agenda-item p {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+}
+
+.agenda-item.car-white {
+  background: #ffffff;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+.agenda-item.car-red {
+  background: #ffe6ea;
+  border-color: #fda4af;
+  color: #7f1d1d;
+}
+
+.agenda-item.car-both {
+  background: linear-gradient(135deg, #ffffff 0%, #ffffff 46%, #ffe7ee 54%, #ffe7ee 100%);
+  border-color: #a5b4fc;
+  color: #312e81;
+}
+
+.agenda-item.urgent {
+  border-width: 2px;
+  border-color: #f59e0b;
+}
+
+.agenda-item.overridden {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  opacity: 0.7;
+}
+
+.agenda-item.overridden p,
+.agenda-item.overridden strong {
+  text-decoration: line-through;
 }
 
 .time-grid-header {
@@ -920,8 +1034,9 @@
     align-items: flex-start;
   }
 
-  .date-time-row {
-    grid-template-columns: 1fr 100px;
+  .booking-date-time-row {
+    grid-template-columns: minmax(120px, 1fr) auto minmax(86px, 110px) auto minmax(86px, 110px);
+    gap: 6px;
   }
 
   .week-header {

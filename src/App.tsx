@@ -37,7 +37,7 @@ const THEME_KEY = 'carScheduler.theme.v1'
 
 type AppView = 'booking' | 'calendar' | 'myBookings'
 type ThemeName = 'blue' | 'pink'
-type BookingFormField = 'title' | 'requestedCarOption' | 'startDate' | 'startTime' | 'endDate' | 'endTime' | 'isUrgent'
+type BookingFormField = 'title' | 'requestedCarOption' | 'bookingDate' | 'startTime' | 'endTime' | 'isUrgent'
 type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
@@ -117,9 +117,8 @@ function App() {
     return toInputDateTimeValue(twoHours)
   }, [])
 
-  const [startDate, setStartDate] = useState(() => splitDateTimeValue(initialStart).date)
+  const [bookingDate, setBookingDate] = useState(() => splitDateTimeValue(initialStart).date)
   const [startTime, setStartTime] = useState(() => splitDateTimeValue(initialStart).time)
-  const [endDate, setEndDate] = useState(() => splitDateTimeValue(initialEnd).date)
   const [endTime, setEndTime] = useState(() => splitDateTimeValue(initialEnd).time)
 
   const refreshBookings = async (withLoader = false) => {
@@ -182,8 +181,8 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
-  const startDateTime = combineDateAndTime(startDate, startTime)
-  const endDateTime = combineDateAndTime(endDate, endTime)
+  const startDateTime = combineDateAndTime(bookingDate, startTime)
+  const endDateTime = combineDateAndTime(bookingDate, endTime)
 
   const isParent = PARENTS.includes(selectedUser)
   const hasValidRange = isValidDateRange(startDateTime, endDateTime)
@@ -502,9 +501,8 @@ function App() {
       {
         title: string
         requestedCarOption: RequestedCarOption
-        startDate: string
+        bookingDate: string
         startTime: string
-        endDate: string
         endTime: string
         isUrgent: boolean
       }
@@ -521,16 +519,12 @@ function App() {
       setSelectedRequestedCarOption(value as RequestedCarOption)
       return
     }
-    if (key === 'startDate') {
-      setStartDate(value as string)
-      return
-    }
     if (key === 'startTime') {
       setStartTime(value as string)
       return
     }
-    if (key === 'endDate') {
-      setEndDate(value as string)
+    if (key === 'bookingDate') {
+      setBookingDate(value as string)
       return
     }
     if (key === 'endTime') {
@@ -641,9 +635,8 @@ function App() {
               values={{
                 title,
                 requestedCarOption: selectedRequestedCarOption,
-                startDate,
+                bookingDate,
                 startTime,
-                endDate,
                 endTime,
                 isUrgent,
               }}

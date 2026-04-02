@@ -5,9 +5,8 @@ import { REQUESTED_CAR_OPTIONS } from '../types'
 type BookingFormValues = {
   title: string
   requestedCarOption: RequestedCarOption
-  startDate: string
+  bookingDate: string
   startTime: string
-  endDate: string
   endTime: string
   isUrgent: boolean
 }
@@ -124,29 +123,21 @@ export default function BookingForm({
         </label>
 
         <label>
-          Start
-          <span className="date-time-row">
+          Date & time range
+          <span className="booking-date-time-row">
             <input
+              className="booking-date-input"
               type="date"
-              value={values.startDate}
-              onChange={(event) => onFieldChange('startDate', event.target.value)}
+              value={values.bookingDate}
+              onChange={(event) => onFieldChange('bookingDate', event.target.value)}
             />
+            <span className="time-inline-label">From</span>
             <input
               type="time"
               value={values.startTime}
               onChange={(event) => onFieldChange('startTime', event.target.value)}
             />
-          </span>
-        </label>
-
-        <label>
-          End
-          <span className="date-time-row">
-            <input
-              type="date"
-              value={values.endDate}
-              onChange={(event) => onFieldChange('endDate', event.target.value)}
-            />
+            <span className="time-inline-label">To</span>
             <input
               type="time"
               value={values.endTime}
