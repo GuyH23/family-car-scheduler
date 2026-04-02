@@ -211,10 +211,12 @@
 
 .booking-date-time-row {
   display: grid;
-  grid-template-columns: minmax(138px, 170px) auto minmax(108px, 130px) auto minmax(108px, 130px);
+  grid-template-columns: minmax(0, 160px) auto minmax(0, 120px) auto minmax(0, 120px);
   gap: 8px;
   align-items: center;
   justify-content: start;
+  width: 100%;
+  min-width: 0;
 }
 
 .time-inline-label {
@@ -225,7 +227,13 @@
 }
 
 .booking-date-input {
-  max-width: 170px;
+  max-width: 160px;
+}
+
+.booking-date-time-row input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .booking-form button {
@@ -1035,8 +1043,12 @@
   }
 
   .booking-date-time-row {
-    grid-template-columns: minmax(120px, 1fr) auto minmax(86px, 110px) auto minmax(86px, 110px);
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 98px) auto minmax(0, 98px);
     gap: 6px;
+  }
+
+  .booking-date-input {
+    max-width: none;
   }
 
   .week-header {
@@ -1076,6 +1088,17 @@
 
   .modal-actions button {
     width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .booking-date-time-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .time-inline-label {
+    display: none;
   }
 }
 
