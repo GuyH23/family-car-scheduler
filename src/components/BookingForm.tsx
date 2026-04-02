@@ -134,18 +134,22 @@ export default function BookingForm({
               />
             </span>
             <span className="booking-time-row">
-              <span className="time-inline-label">From</span>
-              <input
-                type="time"
-                value={values.startTime}
-                onChange={(event) => onFieldChange('startTime', event.target.value)}
-              />
-              <span className="time-inline-label">To</span>
-              <input
-                type="time"
-                value={values.endTime}
-                onChange={(event) => onFieldChange('endTime', event.target.value)}
-              />
+              <span className="time-field">
+                <span className="time-field-label">Start</span>
+                <input
+                  type="time"
+                  value={values.startTime}
+                  onChange={(event) => onFieldChange('startTime', event.target.value)}
+                />
+              </span>
+              <span className="time-field">
+                <span className="time-field-label">End</span>
+                <input
+                  type="time"
+                  value={values.endTime}
+                  onChange={(event) => onFieldChange('endTime', event.target.value)}
+                />
+              </span>
             </span>
           </span>
         </label>

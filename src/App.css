@@ -224,21 +224,23 @@
 
 .booking-time-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 140px) auto minmax(0, 140px);
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  align-items: center;
-  justify-content: start;
+  align-items: stretch;
 }
 
-.time-inline-label {
-  font-size: 0.85rem;
+.time-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.time-field-label {
+  font-size: 0.78rem;
   color: #64748b;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.booking-date-input {
-  max-width: none;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .booking-date-time-row input {
@@ -1058,7 +1060,7 @@
   }
 
   .booking-time-row {
-    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
 
@@ -1104,7 +1106,7 @@
 
 @media (max-width: 560px) {
   .booking-time-row {
-    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
 }
