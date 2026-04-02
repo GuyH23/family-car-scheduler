@@ -26,7 +26,7 @@ import {
   confirmBothCarsForExistingBooking,
   deleteBookingById,
   listBookings,
-  retryCalendarSyncForBooking,
+  syncCalendarBacklog,
   type UrgentConflictCandidate,
   updateBookingById,
 } from './services/bookingsService'
@@ -51,6 +51,19 @@ type PendingUrgentConfirmation = {
 type Notice = {
   type: 'success' | 'error' | 'warning'
   message: string
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const candidate = (error as { message?: unknown }).message
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate
+    }
+  }
+  return fallback
 }
 
 function resolveAssignedCarsForRequest(
@@ -130,6 +143,7 @@ function App() {
     try {
       const loaded = await listBookings()
       setBookings(loaded)
+      void syncCalendarBacklog(loaded)
       return true
     } catch {
       setNotice({
@@ -242,18 +256,6 @@ function App() {
         .find((booking) => !booking.notified),
     [bookings, selectedUser],
   )
-  const failedCalendarSyncBookings = useMemo(
-    () => bookings
-      .filter((booking) => booking.calendarSyncStatus === 'failed')
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [bookings],
-  )
-  const pendingCalendarSyncBookings = useMemo(
-    () => bookings
-      .filter((booking) => booking.calendarSyncStatus === 'pending')
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [bookings],
-  )
 
   const buildUrgentConflictCandidates = (sourceBookings: Booking[]): UrgentConflictCandidate[] => {
     const unique = new Map<string, UrgentConflictCandidate>()
@@ -332,7 +334,6 @@ function App() {
           conflicts: conflictsForSelection,
           selectedConflictId: conflictsForSelection[0]?.id ?? null,
         })
-        setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
       }
 
@@ -361,8 +362,10 @@ function App() {
       }
 
       setNotice({ type: 'success', message: result.message })
-    } catch {
-      setNotice({ type: 'error', message: 'Could not save booking. Please try again.' })
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not save booking. Please try again.')
+      console.error('Booking submission failed', error)
+      setNotice({ type: 'error', message })
     } finally {
       setIsSubmittingBooking(false)
     }
@@ -447,7 +450,6 @@ function App() {
           conflicts: conflictsForSelection,
           selectedConflictId: conflictsForSelection[0]?.id ?? null,
         })
-        setNotice({ type: 'warning', message: 'Select which booking(s) you want to override.' })
         return
       }
       if (result.decision === 'needs_both_cars_decision') {
@@ -474,8 +476,8 @@ function App() {
       }
 
       setNotice({ type: 'success', message: result.message })
-    } catch {
-      setNotice({ type: 'error', message: 'Could not save booking. Please try again.' })
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error, 'Could not save booking. Please try again.') })
     } finally {
       setIsSubmittingBooking(false)
     }
@@ -483,7 +485,6 @@ function App() {
 
   const handleCancelUrgentOverride = () => {
     setPendingUrgentConfirmation(null)
-    setNotice({ type: 'warning', message: 'Urgent override was cancelled.' })
   }
 
   const handleSelectUrgentConflict = (bookingId: string) => {
@@ -508,40 +509,6 @@ function App() {
     }
   }
 
-  const handleRetryCalendarSync = async (bookingId: string) => {
-    try {
-      await retryCalendarSyncForBooking(bookingId)
-      await refreshBookings()
-      setNotice({ type: 'success', message: 'Calendar sync retried successfully.' })
-    } catch {
-      await refreshBookings()
-      setNotice({ type: 'error', message: 'Calendar sync retry failed. Please check function secrets and calendar sharing.' })
-    }
-  }
-
-  const handleSyncAllPending = async () => {
-    if (pendingCalendarSyncBookings.length === 0) {
-      return
-    }
-
-    const results = await Promise.allSettled(
-      pendingCalendarSyncBookings.map((booking) => retryCalendarSyncForBooking(booking.id)),
-    )
-    await refreshBookings()
-
-    const successCount = results.filter((result) => result.status === 'fulfilled').length
-    const failedCount = results.length - successCount
-
-    if (failedCount === 0) {
-      setNotice({ type: 'success', message: `Synced ${successCount} booking(s) to Google Calendar.` })
-      return
-    }
-
-    setNotice({
-      type: 'warning',
-      message: `Synced ${successCount} booking(s), ${failedCount} failed. Use "Retry sync" on failed rows below.`,
-    })
-  }
 
   const onFieldChange = <K extends BookingFormField>(
     key: K,
@@ -644,38 +611,6 @@ function App() {
         </section>
       )}
 
-      {failedCalendarSyncBookings.length > 0 && (
-        <section className="panel sync-debug-panel" role="status">
-          <h3>Calendar sync issues</h3>
-          <p>Bookings are saved in Supabase, but some Google Calendar syncs failed. You can retry here.</p>
-          <ul className="sync-debug-list">
-            {failedCalendarSyncBookings.map((booking) => (
-              <li key={booking.id}>
-                <div>
-                  <strong>{booking.user} - {labelForAssignedCars(booking.assignedCars)}</strong>
-                  <p>{formatDateTime(booking.startDateTime)} - {formatDateTime(booking.endDateTime)}</p>
-                  <p className="sync-debug-error">{booking.calendarSyncError || 'Unknown sync error'}</p>
-                </div>
-                <button type="button" onClick={() => handleRetryCalendarSync(booking.id)}>
-                  Retry sync
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {pendingCalendarSyncBookings.length > 0 && (
-        <section className="panel sync-debug-panel" role="status">
-          <h3>Calendar sync backlog</h3>
-          <p>
-            {pendingCalendarSyncBookings.length} booking(s) are pending Google Calendar sync (including older bookings from before integration).
-          </p>
-          <button type="button" onClick={handleSyncAllPending}>
-            Sync all pending
-          </button>
-        </section>
-      )}
 
       <nav className="view-tabs" aria-label="App views">
         <button

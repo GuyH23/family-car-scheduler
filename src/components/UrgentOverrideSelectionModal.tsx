@@ -26,7 +26,7 @@ export default function UrgentOverrideSelectionModal({
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Choose bookings to override">
       <div className="modal-card">
         <h3>Choose bookings to override</h3>
-        <p>Select which conflicting bookings should be overridden by this urgent request.</p>
+        <p>Select one conflicting booking to override for this urgent request.</p>
 
         <ul className="override-selection-list">
           {conflicts.map((conflict) => {
@@ -43,8 +43,9 @@ export default function UrgentOverrideSelectionModal({
                   />
                   <span>
                     <strong>{conflict.userName}</strong> - {labelForAssignedCars(conflict.assignedCars)}<br />
+                    {title ? <strong>Title: {title}</strong> : 'No title'}
+                    <br />
                     {formatDateTime(conflict.startDateTime)} - {formatDateTime(conflict.endDateTime)}
-                    {title ? ` (${title})` : ''}
                   </span>
                 </label>
               </li>

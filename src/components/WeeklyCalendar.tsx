@@ -212,11 +212,14 @@ export default function WeeklyCalendar({
   }, [agendaItems])
   const availabilitySnapshot = useMemo(() => {
     const now = new Date()
+    const todayStart = new Date(now)
+    todayStart.setHours(0, 0, 0, 0)
     const dayStart = new Date(dayDate)
     dayStart.setHours(0, 0, 0, 0)
     const dayEnd = new Date(dayStart)
     dayEnd.setDate(dayEnd.getDate() + 1)
     const isToday = isSameLocalDay(dayDate, now)
+    const isPastDay = dayStart < todayStart
     const windowStart = isToday && now > dayStart ? now : dayStart
 
     const buildFreeRanges = (car: CarId): Array<{ start: Date; end: Date }> => {
@@ -260,20 +263,25 @@ export default function WeeklyCalendar({
       return freeRanges
     }
 
-    return { buildFreeRanges, windowStart, dayStart, dayEnd, isToday }
+    return { buildFreeRanges, windowStart, dayStart, dayEnd, isToday, isPastDay }
   }, [bookings, dayDate])
   const snapshotLabel = (car: CarId) => {
     const freeRanges = availabilitySnapshot.buildFreeRanges(car)
     const carLabel = car === 'white' ? 'White' : 'Red'
+    const verb = availabilitySnapshot.isPastDay ? 'was' : 'is'
     if (freeRanges.length === 0) {
-      return `${carLabel} is fully booked for the rest of the day`
+      return availabilitySnapshot.isPastDay
+        ? `${carLabel} was fully booked for that day`
+        : `${carLabel} is fully booked for the rest of the day`
     }
     if (
       freeRanges.length === 1 &&
       Math.abs(freeRanges[0].start.getTime() - availabilitySnapshot.windowStart.getTime()) < 60000 &&
       Math.abs(freeRanges[0].end.getTime() - availabilitySnapshot.dayEnd.getTime()) < 60000
     ) {
-      return `${carLabel} is available`
+      return availabilitySnapshot.isPastDay
+        ? `${carLabel} was available all day`
+        : `${carLabel} is available`
     }
 
     const segments = freeRanges.map((range) => {
@@ -285,12 +293,12 @@ export default function WeeklyCalendar({
           ? ''
           : `from ${formatTime(range.start.toISOString())}`
       const endLabel = Math.abs(range.end.getTime() - availabilitySnapshot.dayEnd.getTime()) < 60000
-        ? 'for the rest of the day'
+        ? availabilitySnapshot.isPastDay ? 'for the rest of that day' : 'for the rest of the day'
         : `until ${formatTime(range.end.toISOString())}`
       return startLabel ? `${startLabel} ${endLabel}` : endLabel
     })
 
-    return `${carLabel} is available ${formatAvailabilitySegments(segments)}`
+    return `${carLabel} ${verb} available ${formatAvailabilitySegments(segments)}`
   }
 
   return (

@@ -87,7 +87,6 @@ export default function BookingForm({
   const onlyWhiteAvailable = values.requestedCarOption === 'noPreference' && whiteAvailable && !redAvailable
   const onlyRedAvailable = values.requestedCarOption === 'noPreference' && !whiteAvailable && redAvailable
   const bothCarsUnavailableForRequest = values.requestedCarOption === 'bothCars' && freeCarCount < 2
-  const showBusyDetails = isValidRange && (ownConflictCount > 0 || otherConflictCount > 0 || noCarAvailable || bothCarsUnavailableForRequest || hasPartialNoPreferenceAvailability)
   const whiteConflict = whiteConflicts[0]
   const redConflict = redConflicts[0]
   const ownerLabel = (owner: FamilyMember) => (owner === currentUser ? 'you' : owner)
@@ -102,21 +101,6 @@ export default function BookingForm({
   const whiteOwner = formatConflictOwner(whiteConflict)
   const redOwner = formatConflictOwner(redConflict)
   const showUrgentOverrideSummary = isValidRange && values.isUrgent && ownConflictCount === 0 && otherConflictCount > 0
-  const hasDirectConflictMessage =
-    (isValidRange && values.requestedCarOption === 'red' && !redAvailable && Boolean(redOwner)) ||
-    (isValidRange && values.requestedCarOption === 'white' && !whiteAvailable && Boolean(whiteOwner)) ||
-    (isValidRange && values.requestedCarOption === 'bothCars' && freeCarCount === 1)
-  const conflictDetails = conflicts.flatMap((booking) =>
-    booking.assignedCars.map((car) => {
-      const carLabel = car === 'white' ? 'White' : 'Red'
-      const cleanTitle = (booking.title ?? '').trim()
-      const titleSuffix = cleanTitle ? ` (${cleanTitle})` : ''
-      return {
-        key: `${booking.id}-${car}`,
-        message: `${carLabel} car is booked by ${booking.user}${titleSuffix}`,
-      }
-    }),
-  )
 
   return (
     <section className="panel">
@@ -218,19 +202,19 @@ export default function BookingForm({
             <p>Urgent will override booking in this slot: Red by {redOwner}.</p>
           )}
           {hasPartialNoPreferenceAvailability && <p>Free car: {whiteAvailable ? 'White' : 'Red'}.</p>}
-          {isValidRange && !showUrgentOverrideSummary && values.requestedCarOption === 'noPreference' && !hasPartialNoPreferenceAvailability && !noCarAvailable && !whiteAvailable && whiteOwner && (
+          {isValidRange && ownConflictCount === 0 && !showUrgentOverrideSummary && values.requestedCarOption === 'noPreference' && !hasPartialNoPreferenceAvailability && !noCarAvailable && !whiteAvailable && whiteOwner && (
             <p>White car is booked by {whiteOwner}.</p>
           )}
-          {isValidRange && !showUrgentOverrideSummary && values.requestedCarOption === 'noPreference' && !hasPartialNoPreferenceAvailability && !noCarAvailable && !redAvailable && redOwner && (
+          {isValidRange && ownConflictCount === 0 && !showUrgentOverrideSummary && values.requestedCarOption === 'noPreference' && !hasPartialNoPreferenceAvailability && !noCarAvailable && !redAvailable && redOwner && (
             <p>Red car is booked by {redOwner}.</p>
           )}
-          {isValidRange && !showUrgentOverrideSummary && bothCarsUnavailableForRequest && (
+          {isValidRange && ownConflictCount === 0 && !showUrgentOverrideSummary && bothCarsUnavailableForRequest && (
             <p>Both cars are required, but fewer than 2 cars are available in this time range.</p>
           )}
-          {isValidRange && !showUrgentOverrideSummary && noCarAvailable && whiteOwner && redOwner && (
+          {isValidRange && ownConflictCount === 0 && !showUrgentOverrideSummary && noCarAvailable && whiteOwner && redOwner && (
             <p>Both cars are already occupied in this time range: White by {whiteOwner}, Red by {redOwner}.</p>
           )}
-          {isValidRange && !showUrgentOverrideSummary && noCarAvailable && (!whiteOwner || !redOwner) && <p>Both cars are already occupied in this time range.</p>}
+          {isValidRange && ownConflictCount === 0 && !showUrgentOverrideSummary && noCarAvailable && (!whiteOwner || !redOwner) && <p>Both cars are already occupied in this time range.</p>}
           {isValidRange && ownConflictCount > 0 && otherConflictCount === 0 && (
             <p>
               This slot is not available for you because it overlaps your own booking(s).
@@ -258,13 +242,6 @@ export default function BookingForm({
             <p>
               This slot overlaps your own booking(s) and other booking(s). Urgent can override other users, but not your own bookings.
             </p>
-          )}
-          {showBusyDetails && !showUrgentOverrideSummary && !hasDirectConflictMessage && conflictDetails.length > 0 && (
-            <ul className="availability-conflicts">
-              {conflictDetails.map((detail) => (
-                <li key={detail.key}>{detail.message}</li>
-              ))}
-            </ul>
           )}
         </div>
 

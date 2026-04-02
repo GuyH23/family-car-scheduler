@@ -19,6 +19,7 @@ type BookingRow = {
   start_datetime: string
   end_datetime: string
   note: string | null
+  status: 'active' | 'overridden'
   google_event_id: string | null
 }
 
@@ -39,6 +40,27 @@ function base64UrlEncode(input: Uint8Array | string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+function normalizePrivateKey(rawPrivateKey: string): string {
+  let value = rawPrivateKey.trim()
+
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1)
+  }
+
+  // Support multiple secret formatting styles that often happen in terminals.
+  value = value
+    .replace(/\\\\r\\\\n/g, '\n')
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+
+  return value
+}
+
 async function createServiceAccountAccessToken(email: string, privateKey: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
@@ -54,7 +76,7 @@ async function createServiceAccountAccessToken(email: string, privateKey: string
   const encodedPayload = base64UrlEncode(JSON.stringify(payload))
   const unsignedToken = `${encodedHeader}.${encodedPayload}`
 
-  const normalizedPrivateKey = privateKey.replace(/\\n/g, '\n')
+  const normalizedPrivateKey = normalizePrivateKey(privateKey)
   const cryptoKey = await crypto.subtle.importKey(
     'pkcs8',
     pemToArrayBuffer(normalizedPrivateKey),
@@ -116,6 +138,10 @@ function assignedCarsLabel(assignedCars: string[]): string {
   return 'Car'
 }
 
+function strikethroughText(value: string): string {
+  return value.split('').map((char) => `${char}\u0336`).join('')
+}
+
 function buildDescription(booking: BookingRow): string {
   const lines: string[] = []
   const cleanTitle = (booking.title ?? '').trim()
@@ -127,6 +153,9 @@ function buildDescription(booking: BookingRow): string {
   if (cleanNote) {
     lines.push(`Note: ${cleanNote}`)
   }
+  if (booking.status === 'overridden') {
+    lines.push('Status: Overridden')
+  }
   lines.push('Created via Family Car Scheduler')
   lines.push(`Booking ID: ${booking.id}`)
 
@@ -134,8 +163,14 @@ function buildDescription(booking: BookingRow): string {
 }
 
 function buildGoogleEventPayload(booking: BookingRow) {
+  const cleanTitle = (booking.title ?? '').trim()
+  const baseSummary = `${booking.user_name} - ${assignedCarsLabel(booking.assigned_cars)}`
+  const activeSummary = cleanTitle ? `${baseSummary} | ${cleanTitle}` : baseSummary
+  const summary = booking.status === 'overridden'
+    ? strikethroughText(activeSummary)
+    : activeSummary
   return {
-    summary: `${booking.user_name} - ${assignedCarsLabel(booking.assigned_cars)}`,
+    summary,
     description: buildDescription(booking),
     start: { dateTime: booking.start_datetime },
     end: { dateTime: booking.end_datetime },
@@ -145,6 +180,12 @@ function buildGoogleEventPayload(booking: BookingRow) {
       },
     },
   }
+}
+
+function calendarEventIdFromBookingId(bookingId: string): string {
+  // Google event IDs allow chars a-v and digits 0-9. Strip UUID separators.
+  const normalized = bookingId.toLowerCase().replace(/-/g, '')
+  return `bk${normalized}`
 }
 
 async function googleRequest(accessToken: string, path: string, init: RequestInit): Promise<Response> {
@@ -162,6 +203,27 @@ async function googleRequest(accessToken: string, path: string, init: RequestIni
 function compactError(input: unknown): string {
   const message = input instanceof Error ? input.message : String(input)
   return message.length > 900 ? `${message.slice(0, 900)}...` : message
+}
+
+async function findGoogleEventByBookingId(
+  accessToken: string,
+  calendarId: string,
+  bookingId: string,
+): Promise<{ id: string } | null> {
+  const listResponse = await googleRequest(
+    accessToken,
+    `/calendars/${encodeURIComponent(calendarId)}/events?maxResults=5&singleEvents=true&showDeleted=true&privateExtendedProperty=${encodeURIComponent(`booking_id=${bookingId}`)}`,
+    { method: 'GET' },
+  )
+
+  if (!listResponse.ok) {
+    throw new Error(await listResponse.text())
+  }
+
+  const listJson = await listResponse.json()
+  const items = (listJson.items ?? []) as Array<{ id?: string }>
+  const firstWithId = items.find((item) => Boolean(item.id))
+  return firstWithId?.id ? { id: firstWithId.id } : null
 }
 
 Deno.serve(async (request) => {
@@ -200,7 +262,7 @@ Deno.serve(async (request) => {
     if (action === 'upsert') {
       const { data: bookingData, error: bookingError } = await supabaseAdmin
         .from('bookings')
-        .select('id,title,user_name,assigned_cars,start_datetime,end_datetime,note,google_event_id')
+        .select('id,title,user_name,assigned_cars,start_datetime,end_datetime,note,status,google_event_id')
         .eq('id', bookingId)
         .maybeSingle()
 
@@ -219,20 +281,28 @@ Deno.serve(async (request) => {
 
       try {
         let googleEventId = booking.google_event_id
+        const deterministicEventId = calendarEventIdFromBookingId(booking.id)
+
+        if (!googleEventId) {
+          const existing = await findGoogleEventByBookingId(accessToken, calendarId, booking.id)
+          googleEventId = existing?.id ?? null
+        }
 
         if (!googleEventId) {
           const createResponse = await googleRequest(
             accessToken,
             `/calendars/${encodeURIComponent(calendarId)}/events`,
-            { method: 'POST', body: JSON.stringify(eventPayload) },
+            { method: 'POST', body: JSON.stringify({ ...eventPayload, id: deterministicEventId }) },
           )
 
-          if (!createResponse.ok) {
+          if (createResponse.status === 409) {
+            googleEventId = deterministicEventId
+          } else if (!createResponse.ok) {
             throw new Error(await createResponse.text())
+          } else {
+            const createdEvent = await createResponse.json()
+            googleEventId = createdEvent.id
           }
-
-          const createdEvent = await createResponse.json()
-          googleEventId = createdEvent.id
         } else {
           const updateResponse = await googleRequest(
             accessToken,
@@ -244,13 +314,16 @@ Deno.serve(async (request) => {
             const recreateResponse = await googleRequest(
               accessToken,
               `/calendars/${encodeURIComponent(calendarId)}/events`,
-              { method: 'POST', body: JSON.stringify(eventPayload) },
+              { method: 'POST', body: JSON.stringify({ ...eventPayload, id: deterministicEventId }) },
             )
-            if (!recreateResponse.ok) {
+            if (recreateResponse.status === 409) {
+              googleEventId = deterministicEventId
+            } else if (!recreateResponse.ok) {
               throw new Error(await recreateResponse.text())
+            } else {
+              const recreatedEvent = await recreateResponse.json()
+              googleEventId = recreatedEvent.id
             }
-            const recreatedEvent = await recreateResponse.json()
-            googleEventId = recreatedEvent.id
           } else if (!updateResponse.ok) {
             throw new Error(await updateResponse.text())
           }

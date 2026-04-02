@@ -43,7 +43,9 @@ function toBooking(row: BookingRow): Booking {
   }
 }
 
-type BookingPatch = Partial<Pick<Booking, 'requestedCarOption' | 'assignedCars' | 'status' | 'overriddenByBookingId' | 'notified'>>
+type BookingPatch = Partial<Pick<Booking, 'requestedCarOption' | 'assignedCars' | 'status' | 'notified'>> & {
+  overriddenByBookingId?: string | null
+}
 
 function toPatch(patch: BookingPatch): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
@@ -138,6 +140,26 @@ async function syncBookingToCalendar(payload: CalendarSyncPayload): Promise<void
   }
 }
 
+async function syncBookingIdsToCalendar(bookingIds: string[]): Promise<void> {
+  await Promise.all(bookingIds.map(async (bookingId) => {
+    try {
+      const booking = await getBookingById(bookingId)
+      if (!booking) {
+        return
+      }
+
+      await markCalendarSyncPending(bookingId)
+
+      await syncBookingToCalendar({
+        action: 'upsert',
+        bookingId,
+      })
+    } catch (syncError) {
+      console.error(`Calendar sync failed for booking ${bookingId}`, syncError)
+    }
+  }))
+}
+
 export async function createBooking(booking: Booking): Promise<void> {
   const { error } = await supabase
     .from('bookings')
@@ -223,7 +245,22 @@ export async function attemptBooking(input: AttemptBookingInput): Promise<Attemp
     payload.p_override_booking_ids = input.overrideBookingIds
   }
 
-  const { data, error } = await supabase.rpc('attempt_booking', payload)
+  const invokeAttemptBooking = async (rpcPayload: Record<string, unknown>) =>
+    supabase.rpc('attempt_booking', rpcPayload)
+
+  let { data, error } = await invokeAttemptBooking(payload)
+
+  const message = error?.message ?? ''
+  const missingOverrideArgInSchema = message.includes('Could not find the function public.attempt_booking') &&
+    message.includes('p_override_booking_ids')
+
+  if (error && missingOverrideArgInSchema) {
+    const compatibilityPayload = { ...payload }
+    delete compatibilityPayload.p_override_booking_ids
+    const retryResult = await invokeAttemptBooking(compatibilityPayload)
+    data = retryResult.data
+    error = retryResult.error
+  }
 
   if (error) {
     throw error
@@ -232,14 +269,22 @@ export async function attemptBooking(input: AttemptBookingInput): Promise<Attemp
   const result = data as AttemptBookingResult
 
   if (result.decision === 'created' || result.decision === 'created_with_override') {
-    try {
-      await markCalendarSyncPending(input.bookingId)
-      await syncBookingToCalendar({
-        action: 'upsert',
-        bookingId: input.bookingId,
-      })
-    } catch (syncError) {
-      console.error('Calendar sync failed after booking creation', syncError)
+    await syncBookingIdsToCalendar([input.bookingId])
+
+    if (result.decision === 'created_with_override') {
+      const { data: overriddenRows, error: overriddenRowsError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('overridden_by_booking_id', input.bookingId)
+
+      if (overriddenRowsError) {
+        console.error('Failed loading overridden bookings for calendar sync', overriddenRowsError)
+      } else {
+        const overriddenIds = (overriddenRows as Array<{ id: string }>).map((row) => row.id)
+        if (overriddenIds.length > 0) {
+          await syncBookingIdsToCalendar(overriddenIds)
+        }
+      }
     }
   }
 
@@ -305,17 +350,7 @@ export async function updateBookingsByIds(ids: string[], patch: BookingPatch): P
   }
 
   if (patchNeedsCalendarResync(patch)) {
-    await Promise.all(ids.map(async (id) => {
-      try {
-        await markCalendarSyncPending(id)
-        await syncBookingToCalendar({
-          action: 'upsert',
-          bookingId: id,
-        })
-      } catch (syncError) {
-        console.error(`Calendar sync failed after booking update for ${id}`, syncError)
-      }
-    }))
+    await syncBookingIdsToCalendar(ids)
   }
 }
 
@@ -355,12 +390,53 @@ export async function deleteBookingById(id: string): Promise<void> {
   if (error) {
     throw error
   }
+
+  // If this booking overrode other bookings, restore them.
+  const { data: overriddenRows, error: overriddenRowsError } = await supabase
+    .from('bookings')
+    .select('id')
+    .eq('overridden_by_booking_id', id)
+    .eq('status', 'overridden')
+
+  if (overriddenRowsError) {
+    throw overriddenRowsError
+  }
+
+  const overriddenIds = (overriddenRows as Array<{ id: string }>).map((row) => row.id)
+  if (overriddenIds.length > 0) {
+    await updateBookingsByIds(overriddenIds, {
+      status: 'active',
+      overriddenByBookingId: null,
+    })
+  }
 }
 
 export async function retryCalendarSyncForBooking(bookingId: string): Promise<void> {
-  await markCalendarSyncPending(bookingId)
-  await syncBookingToCalendar({
-    action: 'upsert',
-    bookingId,
-  })
+  await syncBookingIdsToCalendar([bookingId])
+}
+
+export async function syncCalendarBacklog(bookings: Booking[]): Promise<void> {
+  const candidates = bookings
+    .filter((booking) => {
+      if (booking.status === 'active') {
+        return booking.calendarSyncStatus === 'pending' ||
+          booking.calendarSyncStatus === 'failed' ||
+          (booking.calendarSyncStatus === 'synced' && !booking.googleEventId) ||
+          !booking.calendarSyncStatus
+      }
+
+      return booking.status === 'overridden' && (
+        booking.calendarSyncStatus === 'pending' ||
+        booking.calendarSyncStatus === 'failed' ||
+        (booking.calendarSyncStatus === 'synced' && !booking.googleEventId) ||
+        !booking.calendarSyncStatus
+      )
+    })
+    .map((booking) => booking.id)
+
+  if (candidates.length === 0) {
+    return
+  }
+
+  await syncBookingIdsToCalendar(candidates)
 }
