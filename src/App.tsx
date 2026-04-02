@@ -248,6 +248,12 @@ function App() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [bookings],
   )
+  const pendingCalendarSyncBookings = useMemo(
+    () => bookings
+      .filter((booking) => booking.calendarSyncStatus === 'pending')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [bookings],
+  )
 
   const buildUrgentConflictCandidates = (sourceBookings: Booking[]): UrgentConflictCandidate[] => {
     const unique = new Map<string, UrgentConflictCandidate>()
@@ -513,6 +519,30 @@ function App() {
     }
   }
 
+  const handleSyncAllPending = async () => {
+    if (pendingCalendarSyncBookings.length === 0) {
+      return
+    }
+
+    const results = await Promise.allSettled(
+      pendingCalendarSyncBookings.map((booking) => retryCalendarSyncForBooking(booking.id)),
+    )
+    await refreshBookings()
+
+    const successCount = results.filter((result) => result.status === 'fulfilled').length
+    const failedCount = results.length - successCount
+
+    if (failedCount === 0) {
+      setNotice({ type: 'success', message: `Synced ${successCount} booking(s) to Google Calendar.` })
+      return
+    }
+
+    setNotice({
+      type: 'warning',
+      message: `Synced ${successCount} booking(s), ${failedCount} failed. Use "Retry sync" on failed rows below.`,
+    })
+  }
+
   const onFieldChange = <K extends BookingFormField>(
     key: K,
     value: (
@@ -632,6 +662,18 @@ function App() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {pendingCalendarSyncBookings.length > 0 && (
+        <section className="panel sync-debug-panel" role="status">
+          <h3>Calendar sync backlog</h3>
+          <p>
+            {pendingCalendarSyncBookings.length} booking(s) are pending Google Calendar sync (including older bookings from before integration).
+          </p>
+          <button type="button" onClick={handleSyncAllPending}>
+            Sync all pending
+          </button>
         </section>
       )}
 

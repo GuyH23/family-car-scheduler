@@ -326,21 +326,26 @@ export async function deleteBookingById(id: string): Promise<void> {
     return
   }
 
-  await markCalendarSyncPending(id)
-  await syncBookingToCalendar({
-    action: 'delete',
-    bookingId: id,
-    booking: {
-      id: booking.id,
-      googleEventId: booking.googleEventId,
-      user: booking.user,
-      assignedCars: booking.assignedCars,
-      startDateTime: booking.startDateTime,
-      endDateTime: booking.endDateTime,
-      title: booking.title,
-      note: booking.note,
-    },
-  })
+  try {
+    await markCalendarSyncPending(id)
+    await syncBookingToCalendar({
+      action: 'delete',
+      bookingId: id,
+      booking: {
+        id: booking.id,
+        googleEventId: booking.googleEventId,
+        user: booking.user,
+        assignedCars: booking.assignedCars,
+        startDateTime: booking.startDateTime,
+        endDateTime: booking.endDateTime,
+        title: booking.title,
+        note: booking.note,
+      },
+    })
+  } catch (syncError) {
+    // Deletion in Supabase must still succeed even if mirror sync fails.
+    console.error('Calendar sync failed before booking deletion', syncError)
+  }
 
   const { error } = await supabase
     .from('bookings')
