@@ -211,12 +211,24 @@
 
 .booking-date-time-row {
   display: grid;
-  grid-template-columns: minmax(0, 160px) auto minmax(0, 120px) auto minmax(0, 120px);
+  grid-template-columns: 1fr;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.booking-date-row {
+  display: grid;
+  grid-template-columns: minmax(0, 220px);
+  justify-content: start;
+}
+
+.booking-time-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 140px) auto minmax(0, 140px);
   gap: 8px;
   align-items: center;
   justify-content: start;
-  width: 100%;
-  min-width: 0;
 }
 
 .time-inline-label {
@@ -1042,13 +1054,13 @@
     align-items: flex-start;
   }
 
-  .booking-date-time-row {
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 98px) auto minmax(0, 98px);
-    gap: 6px;
+  .booking-date-row {
+    grid-template-columns: 1fr;
   }
 
-  .booking-date-input {
-    max-width: none;
+  .booking-time-row {
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 6px;
   }
 
   .week-header {
@@ -1092,13 +1104,9 @@
 }
 
 @media (max-width: 560px) {
-  .booking-date-time-row {
+  .booking-time-row {
     grid-template-columns: 1fr;
     gap: 6px;
-  }
-
-  .time-inline-label {
-    display: none;
   }
 }
 
