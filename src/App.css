@@ -219,8 +219,7 @@
 
 .booking-date-row {
   display: grid;
-  grid-template-columns: minmax(0, 220px);
-  justify-content: start;
+  grid-template-columns: 1fr;
 }
 
 .booking-time-row {
@@ -239,7 +238,7 @@
 }
 
 .booking-date-input {
-  max-width: 160px;
+  max-width: none;
 }
 
 .booking-date-time-row input {
@@ -1105,7 +1104,7 @@
 
 @media (max-width: 560px) {
   .booking-time-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
     gap: 6px;
   }
 }
