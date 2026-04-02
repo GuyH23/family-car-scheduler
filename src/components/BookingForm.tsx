@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { FormEvent } from 'react'
 import type { Booking, FamilyMember, RequestedCarOption } from '../types'
 import { REQUESTED_CAR_OPTIONS } from '../types'
@@ -44,6 +45,33 @@ export default function BookingForm({
   onFieldChange,
   onSubmit,
 }: BookingFormProps) {
+  const previousCustomRangeRef = useRef<{ startTime: string; endTime: string } | null>(null)
+  const isAllDaySelected = values.startTime === '00:00' && values.endTime === '23:59'
+  const toggleAllDay = () => {
+    if (isAllDaySelected) {
+      const fallbackRange = previousCustomRangeRef.current ?? { startTime: '09:00', endTime: '10:00' }
+      onFieldChange('startTime', fallbackRange.startTime)
+      onFieldChange('endTime', fallbackRange.endTime)
+      return
+    }
+
+    previousCustomRangeRef.current = {
+      startTime: values.startTime,
+      endTime: values.endTime,
+    }
+    onFieldChange('startTime', '00:00')
+    onFieldChange('endTime', '23:59')
+  }
+
+  useEffect(() => {
+    if (!isAllDaySelected) {
+      previousCustomRangeRef.current = {
+        startTime: values.startTime,
+        endTime: values.endTime,
+      }
+    }
+  }, [isAllDaySelected, values.endTime, values.startTime])
+
   const ownConflictCount = selfConflicts.length
   const otherConflictCount = conflicts.length - ownConflictCount
   const freeCarCount = Number(whiteAvailable) + Number(redAvailable)
@@ -151,18 +179,29 @@ export default function BookingForm({
                 />
               </span>
             </span>
+            <span className="all-day-button-row">
+              <label className="urgent-toggle all-day-toggle">
+                <input
+                  type="checkbox"
+                  checked={isAllDaySelected}
+                  onChange={toggleAllDay}
+                />
+                All day
+              </label>
+            </span>
           </span>
         </label>
 
-        <label className="urgent-toggle">
-          <input
-            type="checkbox"
-            checked={values.isUrgent}
-            disabled={!isParent}
-            onChange={(event) => onFieldChange('isUrgent', event.target.checked)}
-          />
-          Urgent (Mom and Dad only)
-        </label>
+        {isParent && (
+          <label className="urgent-toggle">
+            <input
+              type="checkbox"
+              checked={values.isUrgent}
+              onChange={(event) => onFieldChange('isUrgent', event.target.checked)}
+            />
+            Urgent (override another booking)
+          </label>
+        )}
 
         <div className={`availability ${shouldShowAvailable ? 'available' : hasPartialNoPreferenceAvailability ? 'partial' : 'busy'}`}>
           {!isValidRange && <p>End time must be after start time.</p>}

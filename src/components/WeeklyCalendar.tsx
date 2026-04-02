@@ -260,7 +260,7 @@ export default function WeeklyCalendar({
       return freeRanges
     }
 
-    return { buildFreeRanges, windowStart, dayEnd, isToday }
+    return { buildFreeRanges, windowStart, dayStart, dayEnd, isToday }
   }, [bookings, dayDate])
   const snapshotLabel = (car: CarId) => {
     const freeRanges = availabilitySnapshot.buildFreeRanges(car)
@@ -278,11 +278,16 @@ export default function WeeklyCalendar({
 
     const segments = freeRanges.map((range) => {
       const startsNow = availabilitySnapshot.isToday && Math.abs(range.start.getTime() - availabilitySnapshot.windowStart.getTime()) < 60000
-      const startLabel = startsNow ? 'from now' : `from ${formatTime(range.start.toISOString())}`
+      const startsAtDayStart = Math.abs(range.start.getTime() - availabilitySnapshot.dayStart.getTime()) < 60000
+      const startLabel = startsNow
+        ? 'from now'
+        : startsAtDayStart
+          ? ''
+          : `from ${formatTime(range.start.toISOString())}`
       const endLabel = Math.abs(range.end.getTime() - availabilitySnapshot.dayEnd.getTime()) < 60000
         ? 'for the rest of the day'
         : `until ${formatTime(range.end.toISOString())}`
-      return `${startLabel} ${endLabel}`
+      return startLabel ? `${startLabel} ${endLabel}` : endLabel
     })
 
     return `${carLabel} is available ${formatAvailabilitySegments(segments)}`

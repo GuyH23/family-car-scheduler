@@ -257,6 +257,15 @@
   box-sizing: border-box;
 }
 
+.all-day-button-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.all-day-toggle {
+  width: fit-content;
+}
+
 .booking-form button {
   border: none;
   background: var(--accent);
@@ -1117,7 +1126,7 @@
   .booking-date-time-row {
     position: relative;
     display: block;
-    min-height: 112px;
+    min-height: 146px;
     width: 100%;
     margin-top: 2px;
   }
@@ -1168,6 +1177,14 @@
     font-size: 0.74rem;
     line-height: 1;
     margin: 0;
+  }
+
+  .all-day-button-row {
+    position: absolute;
+    top: 104px;
+    left: 0;
+    width: 100%;
+    justify-content: center;
   }
 
   .booking-form input[type='date'],
