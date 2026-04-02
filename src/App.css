@@ -1043,6 +1043,54 @@
   font-weight: 600;
 }
 
+.sync-debug-panel h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+}
+
+.sync-debug-panel > p {
+  margin: 0 0 10px;
+  color: #475569;
+  font-size: 0.86rem;
+}
+
+.sync-debug-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sync-debug-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.sync-debug-list li p {
+  margin: 4px 0 0;
+  font-size: 0.84rem;
+  color: #475569;
+}
+
+.sync-debug-error {
+  color: #991b1b !important;
+}
+
+.sync-debug-list button {
+  width: fit-content;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 @media (max-width: 800px) {
   .app {
     padding: 10px;

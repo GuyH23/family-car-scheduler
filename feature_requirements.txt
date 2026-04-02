@@ -2,3 +2,4 @@
 - "all day" button for booking the car for a whole day (under the hour buttons) (done)
 - remove end date (done)
 - availability snapshot wording: if availability starts at 00:00, show "available until <time>" instead of "available from 00:00 until <time>" (done)
+- Google Calendar integration (shared "Car Schedule" mirror sync: create/update/delete via backend-side sync layer, Supabase remains source of truth, no invites or per-user login) (done)

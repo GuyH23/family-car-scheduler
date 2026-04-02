@@ -17,6 +17,10 @@ export type Booking = {
   status: BookingStatus
   overriddenByBookingId?: string
   notified?: boolean
+  googleEventId?: string
+  calendarSyncStatus?: 'pending' | 'synced' | 'failed'
+  calendarLastSyncedAt?: string
+  calendarSyncError?: string
   createdAt: string
 }
 

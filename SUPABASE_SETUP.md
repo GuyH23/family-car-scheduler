@@ -16,11 +16,16 @@ create table if not exists public.bookings (
   status text not null check (status in ('active', 'overridden')),
   overridden_by_booking_id uuid,
   notified boolean not null default false,
+  google_event_id text,
+  calendar_sync_status text not null default 'pending' check (calendar_sync_status in ('pending', 'synced', 'failed')),
+  calendar_last_synced_at timestamptz,
+  calendar_sync_error text,
   created_at timestamptz not null default now()
 );
 
 create index if not exists bookings_start_datetime_idx on public.bookings (start_datetime);
 create index if not exists bookings_user_name_idx on public.bookings (user_name);
+create index if not exists bookings_calendar_sync_status_idx on public.bookings (calendar_sync_status);
 
 alter table public.bookings enable row level security;
 
@@ -517,6 +522,26 @@ begin
     and status = 'active';
 end;
 $$;
+
+-- Existing projects: add sync columns if table already exists.
+alter table public.bookings
+  add column if not exists google_event_id text,
+  add column if not exists calendar_sync_status text not null default 'pending',
+  add column if not exists calendar_last_synced_at timestamptz,
+  add column if not exists calendar_sync_error text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'bookings_calendar_sync_status_check'
+  ) then
+    alter table public.bookings
+      add constraint bookings_calendar_sync_status_check
+      check (calendar_sync_status in ('pending', 'synced', 'failed'));
+  end if;
+end $$;
 ```
 
 > Note: This is intentionally open for a simple family shared app with no auth.

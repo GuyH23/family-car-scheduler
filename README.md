@@ -63,6 +63,44 @@ npm run build
 - Keep SQL function definitions in sync with frontend payload shape.
 - If RPC signature changes, run SQL updates and reload PostgREST schema.
 
+## Google Calendar sync (shared mirror)
+
+This app can mirror bookings into one shared Google Calendar (no invites, no attendee approval, no per-user login in app).
+
+### Architecture
+
+- Source of truth is still Supabase `bookings`.
+- Frontend calls Supabase RPC/table operations as before.
+- After booking create/update/delete, frontend invokes Supabase Edge Function `calendar-sync`.
+- `calendar-sync` uses a Google service account (server-side only) to create/update/delete events in a shared calendar.
+- Booking rows store sync metadata (`google_event_id`, `calendar_sync_status`, `calendar_last_synced_at`, `calendar_sync_error`) for observability and retry.
+
+### Required env vars
+
+Local (`supabase/functions` secrets):
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+- `GOOGLE_CALENDAR_ID` (shared calendar id)
+
+Frontend (existing):
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+### Sync event format
+
+- Calendar: shared `Car Schedule` calendar
+- Summary: `{User} - {Assigned car(s)}`
+- Description includes:
+  - booking title (if present)
+  - booking note (if present)
+  - `Created via Family Car Scheduler`
+- Time range uses booking `start_datetime` / `end_datetime`.
+- Stable mapping uses booking `google_event_id` plus `extendedProperties.private.booking_id`.
+
 ## Team habits
 
 - Update `CHANGELOG.md` for every meaningful user-facing or logic change.

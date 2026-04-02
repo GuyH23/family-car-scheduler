@@ -26,6 +26,7 @@ import {
   confirmBothCarsForExistingBooking,
   deleteBookingById,
   listBookings,
+  retryCalendarSyncForBooking,
   type UrgentConflictCandidate,
   updateBookingById,
 } from './services/bookingsService'
@@ -240,6 +241,12 @@ function App() {
         .filter((booking) => booking.status === 'overridden')
         .find((booking) => !booking.notified),
     [bookings, selectedUser],
+  )
+  const failedCalendarSyncBookings = useMemo(
+    () => bookings
+      .filter((booking) => booking.calendarSyncStatus === 'failed')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [bookings],
   )
 
   const buildUrgentConflictCandidates = (sourceBookings: Booking[]): UrgentConflictCandidate[] => {
@@ -495,6 +502,17 @@ function App() {
     }
   }
 
+  const handleRetryCalendarSync = async (bookingId: string) => {
+    try {
+      await retryCalendarSyncForBooking(bookingId)
+      await refreshBookings()
+      setNotice({ type: 'success', message: 'Calendar sync retried successfully.' })
+    } catch {
+      await refreshBookings()
+      setNotice({ type: 'error', message: 'Calendar sync retry failed. Please check function secrets and calendar sharing.' })
+    }
+  }
+
   const onFieldChange = <K extends BookingFormField>(
     key: K,
     value: (
@@ -593,6 +611,27 @@ function App() {
           <button type="button" onClick={() => markBookingNotificationSeen(pendingOverrideNotification.id)}>
             Dismiss
           </button>
+        </section>
+      )}
+
+      {failedCalendarSyncBookings.length > 0 && (
+        <section className="panel sync-debug-panel" role="status">
+          <h3>Calendar sync issues</h3>
+          <p>Bookings are saved in Supabase, but some Google Calendar syncs failed. You can retry here.</p>
+          <ul className="sync-debug-list">
+            {failedCalendarSyncBookings.map((booking) => (
+              <li key={booking.id}>
+                <div>
+                  <strong>{booking.user} - {labelForAssignedCars(booking.assignedCars)}</strong>
+                  <p>{formatDateTime(booking.startDateTime)} - {formatDateTime(booking.endDateTime)}</p>
+                  <p className="sync-debug-error">{booking.calendarSyncError || 'Unknown sync error'}</p>
+                </div>
+                <button type="button" onClick={() => handleRetryCalendarSync(booking.id)}>
+                  Retry sync
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
