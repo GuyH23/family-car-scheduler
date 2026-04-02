@@ -134,7 +134,7 @@ export default function BookingForm({
               />
             </span>
             <span className="booking-time-row">
-              <span className="time-field">
+              <span className="time-field time-field-start">
                 <span className="time-field-label">Start</span>
                 <input
                   type="time"
@@ -142,7 +142,7 @@ export default function BookingForm({
                   onChange={(event) => onFieldChange('startTime', event.target.value)}
                 />
               </span>
-              <span className="time-field">
+              <span className="time-field time-field-end">
                 <span className="time-field-label">End</span>
                 <input
                   type="time"

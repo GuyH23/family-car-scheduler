@@ -1,75 +1,69 @@
-# React + TypeScript + Vite
+# Family Car Scheduler
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Shared family car booking app built with React, TypeScript, Vite, and Supabase.
 
-Currently, two official plugins are available:
+## What the app does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Supports 4 users: Dad, Mom, Noa, Yuval.
+- Supports 2 cars: White and Red.
+- Booking options: White, Red, No preference, Both cars.
+- Conflict prevention and urgent override flow.
+- Calendar views: Agenda, Daily, Weekly.
+- My Bookings view per current user.
 
-## React Compiler
+## Tech stack
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+- React + TypeScript + Vite
+- Supabase (`bookings` table + RPC functions)
+- Local storage for current user and theme
 
-Note: This will impact Vite dev & build performances.
+## Local setup
 
-## Expanding the ESLint configuration
+1. Install dependencies:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. Create `.env.local` in project root:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
+
+3. Run development server:
+
+```bash
+npm run dev
+```
+
+4. Build for production:
+
+```bash
+npm run build
+```
+
+## App workflow
+
+1. Select current user (stored locally).
+2. Create booking:
+   - choose car option
+   - choose date + time range
+   - optionally mark urgent (Mom/Dad only)
+3. Pre-save availability panel shows if slot is possible and who occupies conflicts.
+4. On submit, booking decision is validated by Supabase RPC (`attempt_booking`) before insert.
+5. If exact-time duplicate (same user, different car), app prompts `Both cars / Cancel`.
+6. If urgent conflicts exist, app asks which booking to override, then confirms.
+7. Calendar updates from shared Supabase data for all devices.
+
+## Supabase notes
+
+- Booking creation/validation is backend-authoritative via RPC.
+- Keep SQL function definitions in sync with frontend payload shape.
+- If RPC signature changes, run SQL updates and reload PostgREST schema.
+
+## Team habits
+
+- Update `CHANGELOG.md` for every meaningful user-facing or logic change.
+- Keep this README workflow section aligned with real app behavior.
