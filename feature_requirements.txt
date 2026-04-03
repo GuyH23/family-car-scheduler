@@ -8,3 +8,5 @@
 - recurring deletion popup: delete only this booking or whole recurring week (done)
 - undo delete: after deleting booking(s), show undo action to restore (including recurring week deletions) (done)
 - neighborhood alerts: 3 proximity levels for adjacent bookings (low 30-60 min, medium 15-30 min, high 0-15 min) for both new and edited bookings (done)
+- auto-resolution assistant: dynamic same-day alternatives (up to 3, quality-prioritized), grouped by ready-now and requires-override (requires-override shown only for urgent parent flow) (done)
+- car switch mechanism: blocked single-car request can ask conflicting user to switch to the other free car (with approval flow + WhatsApp preset + expiry) (done)

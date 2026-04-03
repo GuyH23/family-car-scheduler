@@ -542,6 +542,56 @@ begin
       check (calendar_sync_status in ('pending', 'synced', 'failed'));
   end if;
 end $$;
+
+create table if not exists public.car_switch_requests (
+  id uuid primary key,
+  requester_name text not null check (requester_name in ('Dad', 'Mom', 'Noa', 'Yuval')),
+  requested_user_name text not null check (requested_user_name in ('Dad', 'Mom', 'Noa', 'Yuval')),
+  requester_booking_id uuid not null,
+  requester_title text,
+  requester_requested_car_option text not null check (requester_requested_car_option in ('white', 'red', 'noPreference', 'bothCars')),
+  requester_start_datetime timestamptz not null,
+  requester_end_datetime timestamptz not null,
+  requested_booking_id uuid not null,
+  requested_current_car text not null check (requested_current_car in ('white', 'red')),
+  requested_target_car text not null check (requested_target_car in ('white', 'red')),
+  status text not null default 'pending' check (status in ('pending', 'declined', 'cancelled', 'expired', 'applied')),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists car_switch_requests_status_idx on public.car_switch_requests (status);
+create index if not exists car_switch_requests_requester_idx on public.car_switch_requests (requester_name);
+create index if not exists car_switch_requests_requested_idx on public.car_switch_requests (requested_user_name);
+create index if not exists car_switch_requests_expires_idx on public.car_switch_requests (expires_at);
+
+alter table public.car_switch_requests enable row level security;
+
+create policy "public read car switch requests"
+on public.car_switch_requests
+for select
+to anon
+using (true);
+
+create policy "public insert car switch requests"
+on public.car_switch_requests
+for insert
+to anon
+with check (true);
+
+create policy "public update car switch requests"
+on public.car_switch_requests
+for update
+to anon
+using (true)
+with check (true);
+
+create policy "public delete car switch requests"
+on public.car_switch_requests
+for delete
+to anon
+using (true);
 ```
 
 > Note: This is intentionally open for a simple family shared app with no auth.

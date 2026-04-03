@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - `README.md` project workflow documentation.
 - `All day` booking toggle under the time inputs.
 - Google Calendar backend sync function (`supabase/functions/calendar-sync`) for booking create/update/delete mirroring.
+- Car-switch request flow with approval/decline, auto-expiry, and WhatsApp preset deep-link.
 
 ### Changed
 - Booking form simplified to single date + time range flow.
@@ -25,6 +26,7 @@ All notable changes to this project are documented in this file.
 - Default calendar opening range adjusted to daytime.
 - Urgent toggle now appears for parents only and label clarifies override behavior.
 - `All day` control now uses the same checkbox-row format as `Urgent`.
+- Auto-resolution ranking now prioritizes closer, higher-overlap alternatives and reduces weak options.
 
 ### Fixed
 - Backend-authoritative booking flow for overlap and duplicate checks.
@@ -33,6 +35,7 @@ All notable changes to this project are documented in this file.
 - Pre-save vs post-submit mismatch in availability guidance.
 - Redundant conflict text in booking form warning panel.
 - RPC request compatibility issue causing `attempt_booking` 404 when DB signature lags.
+- Blocked single-car flows can now surface exact-time switch proposals instead of only fallback times.
 
 ## [0.1.0] - 2026-03-31
 

@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabaseClient'
-import type { Booking } from '../types'
+import type { Booking, CarId, CarSwitchRequest, CarSwitchRequestStatus, FamilyMember, RequestedCarOption } from '../types'
+import { generateUuid } from '../utils/idUtils'
 
 type BookingRow = {
   id: string
@@ -21,6 +22,24 @@ type BookingRow = {
   created_at: string
 }
 
+type CarSwitchRequestRow = {
+  id: string
+  requester_name: FamilyMember
+  requested_user_name: FamilyMember
+  requester_booking_id: string
+  requester_title: string | null
+  requester_requested_car_option: RequestedCarOption
+  requester_start_datetime: string
+  requester_end_datetime: string
+  requested_booking_id: string
+  requested_current_car: CarId
+  requested_target_car: CarId
+  status: CarSwitchRequestStatus
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
 function toBooking(row: BookingRow): Booking {
   return {
     id: row.id,
@@ -40,6 +59,26 @@ function toBooking(row: BookingRow): Booking {
     calendarLastSyncedAt: row.calendar_last_synced_at ?? undefined,
     calendarSyncError: row.calendar_sync_error ?? undefined,
     createdAt: row.created_at,
+  }
+}
+
+function toCarSwitchRequest(row: CarSwitchRequestRow): CarSwitchRequest {
+  return {
+    id: row.id,
+    requesterName: row.requester_name,
+    requestedUserName: row.requested_user_name,
+    requesterBookingId: row.requester_booking_id,
+    requesterTitle: row.requester_title ?? '',
+    requesterRequestedCarOption: row.requester_requested_car_option,
+    requesterStartDateTime: row.requester_start_datetime,
+    requesterEndDateTime: row.requester_end_datetime,
+    requestedBookingId: row.requested_booking_id,
+    requestedCurrentCar: row.requested_current_car,
+    requestedTargetCar: row.requested_target_car,
+    status: row.status,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -493,4 +532,172 @@ export async function syncCalendarBacklog(bookings: Booking[]): Promise<void> {
   }
 
   await syncBookingIdsToCalendar(candidates)
+}
+
+export type CreateCarSwitchRequestInput = {
+  requesterName: FamilyMember
+  requestedUserName: FamilyMember
+  requesterBookingId: string
+  requesterTitle: string
+  requesterRequestedCarOption: RequestedCarOption
+  requesterStartDateTime: string
+  requesterEndDateTime: string
+  requestedBookingId: string
+  requestedCurrentCar: CarId
+  requestedTargetCar: CarId
+  expiresAt: string
+}
+
+export async function listCarSwitchRequests(): Promise<CarSwitchRequest[]> {
+  const { data, error } = await supabase
+    .from('car_switch_requests')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data as CarSwitchRequestRow[]).map(toCarSwitchRequest)
+}
+
+export async function createCarSwitchRequest(input: CreateCarSwitchRequestInput): Promise<CarSwitchRequest> {
+  const row = {
+    id: generateUuid(),
+    requester_name: input.requesterName,
+    requested_user_name: input.requestedUserName,
+    requester_booking_id: input.requesterBookingId,
+    requester_title: input.requesterTitle || null,
+    requester_requested_car_option: input.requesterRequestedCarOption,
+    requester_start_datetime: input.requesterStartDateTime,
+    requester_end_datetime: input.requesterEndDateTime,
+    requested_booking_id: input.requestedBookingId,
+    requested_current_car: input.requestedCurrentCar,
+    requested_target_car: input.requestedTargetCar,
+    status: 'pending' as CarSwitchRequestStatus,
+    expires_at: input.expiresAt,
+  }
+
+  const { data, error } = await supabase
+    .from('car_switch_requests')
+    .insert(row)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return toCarSwitchRequest(data as CarSwitchRequestRow)
+}
+
+export async function updateCarSwitchRequestStatus(id: string, status: CarSwitchRequestStatus): Promise<void> {
+  const { error } = await supabase
+    .from('car_switch_requests')
+    .update({ status })
+    .eq('id', id)
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function expireElapsedCarSwitchRequests(nowIso: string): Promise<void> {
+  const { error } = await supabase
+    .from('car_switch_requests')
+    .update({ status: 'expired' })
+    .eq('status', 'pending')
+    .lte('expires_at', nowIso)
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function approveAndApplyCarSwitchRequest(request: CarSwitchRequest): Promise<void> {
+  if (request.status !== 'pending') {
+    throw new Error('Request is no longer pending.')
+  }
+  if (new Date().toISOString() >= request.expiresAt) {
+    await updateCarSwitchRequestStatus(request.id, 'expired')
+    throw new Error('Request has expired.')
+  }
+
+  const requestedBooking = await getBookingById(request.requestedBookingId)
+  if (!requestedBooking || requestedBooking.status !== 'active') {
+    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    throw new Error('Requested booking is not available anymore.')
+  }
+  if (requestedBooking.user !== request.requestedUserName) {
+    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    throw new Error('Requested booking owner changed.')
+  }
+  if (requestedBooking.assignedCars.length !== 1 || requestedBooking.assignedCars[0] !== request.requestedCurrentCar) {
+    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    throw new Error('Requested booking car no longer matches the request.')
+  }
+
+  const { data: targetCarBlockingRows, error: blockingError } = await supabase
+    .from('bookings')
+    .select('id')
+    .eq('status', 'active')
+    .neq('id', request.requestedBookingId)
+    .lt('start_datetime', requestedBooking.endDateTime)
+    .gt('end_datetime', requestedBooking.startDateTime)
+    .contains('assigned_cars', [request.requestedTargetCar])
+
+  if (blockingError) {
+    throw blockingError
+  }
+  if ((targetCarBlockingRows as Array<{ id: string }>).length > 0) {
+    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    throw new Error('Target car became unavailable for the requested user.')
+  }
+
+  const originalRequestedOption = requestedBooking.requestedCarOption
+
+  const { error: updateRequestedBookingError } = await supabase
+    .from('bookings')
+    .update({
+      requested_car_option: request.requestedTargetCar,
+      assigned_cars: [request.requestedTargetCar],
+    })
+    .eq('id', request.requestedBookingId)
+
+  if (updateRequestedBookingError) {
+    throw updateRequestedBookingError
+  }
+
+  try {
+    const bookingAttempt = await attemptBooking({
+      bookingId: request.requesterBookingId,
+      title: request.requesterTitle ?? '',
+      userName: request.requesterName,
+      requestedCarOption: request.requesterRequestedCarOption,
+      startDateTime: request.requesterStartDateTime,
+      endDateTime: request.requesterEndDateTime,
+      isUrgent: false,
+      note: '',
+      confirmUrgentOverride: false,
+    })
+
+    if (bookingAttempt.decision !== 'created') {
+      throw new Error(bookingAttempt.message || 'Could not apply switch request.')
+    }
+
+    await updateCarSwitchRequestStatus(request.id, 'applied')
+    await syncBookingIdsToCalendar([request.requestedBookingId, request.requesterBookingId])
+  } catch (error) {
+    // Roll back requested booking if requester booking could not be created.
+    await supabase
+      .from('bookings')
+      .update({
+        requested_car_option: originalRequestedOption,
+        assigned_cars: [request.requestedCurrentCar],
+      })
+      .eq('id', request.requestedBookingId)
+
+    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    throw error
+  }
 }

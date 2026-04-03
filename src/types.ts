@@ -3,6 +3,7 @@ export type CarId = 'white' | 'red'
 export type CarFilter = CarId | 'both'
 export type BookingStatus = 'active' | 'overridden'
 export type RequestedCarOption = 'white' | 'red' | 'noPreference' | 'bothCars'
+export type CarSwitchRequestStatus = 'pending' | 'declined' | 'cancelled' | 'expired' | 'applied'
 
 export type Booking = {
   id: string
@@ -22,6 +23,24 @@ export type Booking = {
   calendarLastSyncedAt?: string
   calendarSyncError?: string
   createdAt: string
+}
+
+export type CarSwitchRequest = {
+  id: string
+  requesterName: FamilyMember
+  requestedUserName: FamilyMember
+  requesterBookingId: string
+  requesterTitle?: string
+  requesterRequestedCarOption: RequestedCarOption
+  requesterStartDateTime: string
+  requesterEndDateTime: string
+  requestedBookingId: string
+  requestedCurrentCar: CarId
+  requestedTargetCar: CarId
+  status: CarSwitchRequestStatus
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
 }
 
 export const FAMILY_MEMBERS: FamilyMember[] = ['Dad', 'Mom', 'Noa', 'Yuval']

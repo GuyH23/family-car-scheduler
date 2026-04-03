@@ -904,6 +904,18 @@
   padding-top: 0;
 }
 
+.my-switch-requests {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.my-switch-requests--after-bookings {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
 .my-booking-date {
   margin: 0 0 8px;
   font-size: 0.9rem;
@@ -1083,6 +1095,11 @@
   font-size: 0.9rem;
 }
 
+.copy-message-box--ltr {
+  direction: ltr;
+  text-align: left;
+}
+
 .modal-actions {
   margin-top: 12px;
   display: flex;
@@ -1120,6 +1137,58 @@
   cursor: not-allowed;
   filter: none;
   transform: none;
+}
+
+.auto-resolution-modal {
+  width: min(560px, 100%);
+}
+
+.auto-resolution-group h4 {
+  margin: 10px 0 6px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.auto-resolution-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.auto-resolution-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.auto-resolution-item.override {
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.auto-resolution-item p {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.auto-resolution-proximity.low {
+  color: #a16207;
+}
+
+.auto-resolution-proximity.medium {
+  color: #c2410c;
+}
+
+.auto-resolution-proximity.high {
+  color: #b91c1c;
 }
 
 .override-selection-list {

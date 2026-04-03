@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import BookingForm from './components/BookingForm'
+import AutoResolutionModal from './components/AutoResolutionModal'
 import ConfirmModal from './components/ConfirmModal'
 import EditBookingTimeModal from './components/EditBookingTimeModal'
 import MyBookings from './components/MyBookings'
 import RecurringDeleteModal from './components/RecurringDeleteModal'
+import SwitchRequestMessageModal from './components/SwitchRequestMessageModal'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
 import UrgentOverrideSelectionModal from './components/UrgentOverrideSelectionModal'
 import ViewShell from './components/ViewShell'
 import UserSelectionModal from './components/UserSelectionModal'
 import WeeklyCalendar from './components/WeeklyCalendar'
-import type { Booking, CarId, FamilyMember, RequestedCarOption } from './types'
+import type { Booking, CarId, CarSwitchRequest, FamilyMember, RequestedCarOption } from './types'
 import { FAMILY_MEMBERS, PARENTS } from './types'
 import {
   combineDateAndTime,
@@ -24,18 +26,24 @@ import {
   splitDateTimeValue,
   toInputDateTimeValue,
 } from './utils/bookingUtils'
+import { generateUuid } from './utils/idUtils'
 import {
+  approveAndApplyCarSwitchRequest,
   attemptBooking,
+  createCarSwitchRequest,
   confirmBothCarsForExistingBooking,
   deleteBookingById,
+  expireElapsedCarSwitchRequests,
+  listCarSwitchRequests,
   listBookings,
   restoreDeletedBookings,
   syncCalendarBacklog,
+  updateCarSwitchRequestStatus,
   type UrgentConflictCandidate,
   updateBookingById,
   updateBookingDetailsById,
 } from './services/bookingsService'
-import type { AttemptBookingInput } from './services/bookingsService'
+import type { AttemptBookingInput, CreateCarSwitchRequestInput } from './services/bookingsService'
 import './App.css'
 
 const CURRENT_USER_KEY = 'carScheduler.currentUser.v1'
@@ -56,6 +64,10 @@ type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
 }
+type SwitchMessagePayload = {
+  recipientName: FamilyMember
+  message: string
+}
 type PendingUrgentConfirmation = {
   attemptInput: AttemptBookingInput
   conflicts: UrgentConflictCandidate[]
@@ -71,6 +83,49 @@ type ProximityAlert = {
   minGapMinutes: number
   details: string[]
 }
+type AutoResolutionMode = 'ready' | 'override'
+type AutoResolutionOption = {
+  id: string
+  mode: AutoResolutionMode
+  startDateTime: string
+  endDateTime: string
+  requestedCarOption: RequestedCarOption
+  assignedCars: CarId[]
+  score: number
+  proximitySeverity?: ProximitySeverity
+  proximityGapMinutes?: number
+  timeDistanceMinutes: number
+  durationDeltaMinutes: number
+  keepsRequestedCar: boolean
+  overrideImpacts: Array<{ user: FamilyMember; startDateTime: string; endDateTime: string }>
+}
+type CarSwitchCandidate = {
+  id: string
+  requestedBookingId: string
+  requestedUserName: FamilyMember
+  requestedCurrentCar: CarId
+  requestedTargetCar: CarId
+  requesterRequestedCarOption: RequestedCarOption
+  requesterStartDateTime: string
+  requesterEndDateTime: string
+  expiresAt: string
+  whatsappMessage: string
+}
+type PendingAutoResolution =
+  | {
+    action: 'new'
+    readyNow: AutoResolutionOption[]
+    requiresOverride: AutoResolutionOption[]
+    switchCandidates: CarSwitchCandidate[]
+  }
+  | {
+    action: 'edit'
+    bookingId: string
+    bookingTitle: string
+    readyNow: AutoResolutionOption[]
+    requiresOverride: AutoResolutionOption[]
+    switchCandidates: CarSwitchCandidate[]
+  }
 type PendingProximityConfirmation =
   | { action: 'new'; title: string; message: string; severity: ProximitySeverity }
   | {
@@ -201,6 +256,19 @@ function proximityLabelFromSeverity(severity: ProximitySeverity): string {
   return 'LOW'
 }
 
+function severityPenalty(severity?: ProximitySeverity): number {
+  if (severity === 'high') {
+    return 6
+  }
+  if (severity === 'medium') {
+    return 4
+  }
+  if (severity === 'low') {
+    return 2
+  }
+  return 0
+}
+
 function getProximityAlert(
   sourceBookings: Booking[],
   assignedCars: CarId[],
@@ -303,8 +371,11 @@ function App() {
   const [duplicateBookingToMergeId, setDuplicateBookingToMergeId] = useState<string | null>(null)
   const [pendingUrgentConfirmation, setPendingUrgentConfirmation] = useState<PendingUrgentConfirmation | null>(null)
   const [overrideNotifyPayload, setOverrideNotifyPayload] = useState<OverrideNotifyPayload | null>(null)
+  const [switchMessagePayload, setSwitchMessagePayload] = useState<SwitchMessagePayload | null>(null)
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
   const [pendingProximityConfirmation, setPendingProximityConfirmation] = useState<PendingProximityConfirmation | null>(null)
+  const [pendingAutoResolution, setPendingAutoResolution] = useState<PendingAutoResolution | null>(null)
+  const [carSwitchRequests, setCarSwitchRequests] = useState<CarSwitchRequest[]>([])
   const [pendingRecurringDelete, setPendingRecurringDelete] = useState<PendingRecurringDeleteConfirmation | null>(null)
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null)
   const [undoSecondsLeft, setUndoSecondsLeft] = useState(0)
@@ -339,6 +410,13 @@ function App() {
       const loaded = await listBookings()
       setBookings(loaded)
       void syncCalendarBacklog(loaded)
+      try {
+        await expireElapsedCarSwitchRequests(new Date().toISOString())
+        const requests = await listCarSwitchRequests()
+        setCarSwitchRequests(requests)
+      } catch (switchError) {
+        console.error('Could not load car-switch requests', switchError)
+      }
       return true
     } catch {
       setNotice({
@@ -461,6 +539,20 @@ function App() {
         .find((booking) => !booking.notified),
     [bookings, selectedUser],
   )
+  const incomingPendingSwitchRequests = useMemo(
+    () => carSwitchRequests.filter((request) =>
+      request.status === 'pending' &&
+      request.requestedUserName === selectedUser &&
+      new Date(request.requesterStartDateTime).getTime() > Date.now()),
+    [carSwitchRequests, selectedUser],
+  )
+  const outgoingPendingSwitchRequests = useMemo(
+    () => carSwitchRequests.filter((request) =>
+      request.status === 'pending' &&
+      request.requesterName === selectedUser &&
+      new Date(request.requesterStartDateTime).getTime() > Date.now()),
+    [carSwitchRequests, selectedUser],
+  )
 
   const buildUrgentConflictCandidates = (sourceBookings: Booking[]): UrgentConflictCandidate[] => {
     const unique = new Map<string, UrgentConflictCandidate>()
@@ -512,7 +604,348 @@ function App() {
     })
   }
 
-  const runCreateBooking = async (skipProximityCheck: boolean) => {
+  const buildCarSwitchCandidates = (params: {
+    currentUser: FamilyMember
+    requestedCarOption: RequestedCarOption
+    requesterStartDateTime: string
+    requesterEndDateTime: string
+  }): CarSwitchCandidate[] => {
+    const requestedCarsToTry: CarId[] = params.requestedCarOption === 'white'
+      ? ['white']
+      : params.requestedCarOption === 'red'
+        ? ['red']
+        : params.requestedCarOption === 'noPreference'
+          ? ['white', 'red']
+          : []
+
+    if (requestedCarsToTry.length === 0) {
+      return []
+    }
+
+    const candidates: CarSwitchCandidate[] = []
+    const seen = new Set<string>()
+
+    for (const requestedCar of requestedCarsToTry) {
+      const targetCar: CarId = requestedCar === 'white' ? 'red' : 'white'
+      const overlapsOnRequestedCar = getConflicts(
+        bookings,
+        [requestedCar],
+        params.requesterStartDateTime,
+        params.requesterEndDateTime,
+      ).filter((booking) => booking.status === 'active' && booking.user !== params.currentUser)
+
+      for (const blocker of overlapsOnRequestedCar) {
+        if (blocker.assignedCars.length !== 1 || blocker.assignedCars[0] !== requestedCar) {
+          continue
+        }
+
+        const blockerTargetConflicts = getConflicts(
+          bookings.filter((booking) => booking.id !== blocker.id),
+          [targetCar],
+          blocker.startDateTime,
+          blocker.endDateTime,
+        ).filter((booking) => booking.status === 'active')
+
+        if (blockerTargetConflicts.length > 0) {
+          continue
+        }
+
+        const requesterRemainingConflicts = getConflicts(
+          bookings.filter((booking) => booking.id !== blocker.id),
+          [requestedCar],
+          params.requesterStartDateTime,
+          params.requesterEndDateTime,
+        ).filter((booking) => booking.status === 'active' && booking.user !== params.currentUser)
+
+        if (requesterRemainingConflicts.length > 0) {
+          continue
+        }
+
+        const expiryMs = Math.min(
+          new Date(params.requesterStartDateTime).getTime(),
+          new Date(blocker.startDateTime).getTime(),
+        )
+        if (!Number.isFinite(expiryMs) || expiryMs <= Date.now()) {
+          continue
+        }
+
+        const requesterDateLabel = new Date(params.requesterStartDateTime).toLocaleDateString(undefined, {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+        })
+        const formattedStart = formatTime(params.requesterStartDateTime)
+        const formattedEnd = formatTime(params.requesterEndDateTime)
+        const blockerStart = formatTime(blocker.startDateTime)
+        const blockerEnd = formatTime(blocker.endDateTime)
+        const whatsappMessage =
+          `Hi ${blocker.user},\n\n` +
+          `Can we do a quick car switch on ${requesterDateLabel}?\n` +
+          `- Your current booking: ${requestedCar} (${blockerStart}-${blockerEnd})\n` +
+          `- Requested switch: move to ${targetCar} (same time)\n` +
+          `- I need: ${requestedCar} (${formattedStart}-${formattedEnd})\n\n` +
+          `Thanks!`
+
+        const key = `${blocker.id}|${requestedCar}|${targetCar}|${params.requesterStartDateTime}|${params.requesterEndDateTime}`
+        if (seen.has(key)) {
+          continue
+        }
+        seen.add(key)
+
+        candidates.push({
+          id: key,
+          requestedBookingId: blocker.id,
+          requestedUserName: blocker.user,
+          requestedCurrentCar: requestedCar,
+          requestedTargetCar: targetCar,
+          requesterRequestedCarOption: requestedCar,
+          requesterStartDateTime: params.requesterStartDateTime,
+          requesterEndDateTime: params.requesterEndDateTime,
+          expiresAt: new Date(expiryMs).toISOString(),
+          whatsappMessage,
+        })
+      }
+    }
+
+    return candidates.slice(0, 3)
+  }
+
+  const buildAutoResolutionSuggestions = (params: {
+    currentUser: FamilyMember
+    canUseOverride: boolean
+    requestedCarOption: RequestedCarOption
+    baseStartDateTime: string
+    baseEndDateTime: string
+    excludeBookingId?: string
+    originalAssignedCars?: CarId[]
+    fixedAssignedCars?: CarId[]
+  }): { readyNow: AutoResolutionOption[]; requiresOverride: AutoResolutionOption[] } => {
+    const baseStart = new Date(params.baseStartDateTime)
+    const baseEnd = new Date(params.baseEndDateTime)
+    const baseDurationMinutes = Math.round((baseEnd.getTime() - baseStart.getTime()) / 60000)
+    if (Number.isNaN(baseDurationMinutes) || baseDurationMinutes <= 0) {
+      return { readyNow: [], requiresOverride: [] }
+    }
+
+    const dayStart = new Date(baseStart)
+    dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date(dayStart)
+    dayEnd.setDate(dayEnd.getDate() + 1)
+
+    const durationOptions = [
+      baseDurationMinutes,
+      baseDurationMinutes - 30,
+      baseDurationMinutes + 30,
+      baseDurationMinutes - 60,
+      baseDurationMinutes + 60,
+    ].filter((value, index, arr) =>
+      value >= 30 &&
+      value <= 12 * 60 &&
+      arr.indexOf(value) === index)
+
+    const carCombos: Array<{ requested: RequestedCarOption; assigned: CarId[]; carPenalty: number }> =
+      params.fixedAssignedCars
+        ? [{
+          requested: params.requestedCarOption,
+          assigned: params.fixedAssignedCars,
+          carPenalty: 0,
+        }]
+        : (() => {
+          if (params.requestedCarOption === 'white') {
+            return [
+              { requested: 'white' as RequestedCarOption, assigned: ['white' as CarId], carPenalty: 0 },
+              { requested: 'red' as RequestedCarOption, assigned: ['red' as CarId], carPenalty: 1 },
+            ]
+          }
+          if (params.requestedCarOption === 'red') {
+            return [
+              { requested: 'red' as RequestedCarOption, assigned: ['red' as CarId], carPenalty: 0 },
+              { requested: 'white' as RequestedCarOption, assigned: ['white' as CarId], carPenalty: 1 },
+            ]
+          }
+          if (params.requestedCarOption === 'bothCars') {
+            return [{ requested: 'bothCars' as RequestedCarOption, assigned: ['white' as CarId, 'red' as CarId], carPenalty: 0 }]
+          }
+          const preferred = preferredCarForUser(params.currentUser)
+          const alternative: CarId = preferred === 'white' ? 'red' : 'white'
+          return [
+            { requested: preferred, assigned: [preferred], carPenalty: 0 },
+            { requested: alternative, assigned: [alternative], carPenalty: 2 },
+          ]
+        })()
+
+    const candidates: AutoResolutionOption[] = []
+    const seen = new Set<string>()
+    const stepMinutes = 15
+    const baseStartMs = baseStart.getTime()
+
+    for (const duration of durationOptions) {
+      const phasePenalty = duration === baseDurationMinutes ? 0 : 3
+      for (let cursor = dayStart.getTime(); cursor + duration * 60000 <= dayEnd.getTime(); cursor += stepMinutes * 60000) {
+        const startMs = cursor
+        const endMs = cursor + duration * 60000
+        const startIso = new Date(startMs).toISOString()
+        const endIso = new Date(endMs).toISOString()
+
+        for (const combo of carCombos) {
+          if (
+            startIso === params.baseStartDateTime &&
+            endIso === params.baseEndDateTime &&
+            combo.assigned.join(',') === (params.originalAssignedCars ?? params.fixedAssignedCars ?? combo.assigned).join(',')
+          ) {
+            continue
+          }
+
+          const overlapConflicts = getConflicts(
+            params.excludeBookingId ? bookings.filter((booking) => booking.id !== params.excludeBookingId) : bookings,
+            combo.assigned,
+            startIso,
+            endIso,
+          )
+          const selfOverlap = overlapConflicts.some((booking) => booking.user === params.currentUser)
+          if (selfOverlap) {
+            continue
+          }
+
+          const otherOverlap = overlapConflicts.filter((booking) => booking.user !== params.currentUser)
+          const mode: AutoResolutionMode = otherOverlap.length === 0 ? 'ready' : 'override'
+          if (mode === 'override' && !params.canUseOverride) {
+            continue
+          }
+
+          const proximity = getProximityAlert(
+            params.excludeBookingId ? bookings.filter((booking) => booking.id !== params.excludeBookingId) : bookings,
+            combo.assigned,
+            startIso,
+            endIso,
+            params.excludeBookingId,
+          )
+
+          const timeDistanceMinutes = Math.round(Math.abs(startMs - baseStartMs) / 60000)
+          const durationDeltaMinutes = Math.abs(duration - baseDurationMinutes)
+          const overlapStart = Math.max(startMs, baseStart.getTime())
+          const overlapEnd = Math.min(endMs, baseEnd.getTime())
+          const overlapMinutes = Math.max(0, Math.round((overlapEnd - overlapStart) / 60000))
+          const overlapPenalty = Math.max(0, Math.round((baseDurationMinutes - overlapMinutes) / 15))
+
+          // Hide weak matches that are too far from the requested slot.
+          if (timeDistanceMinutes > 2 * 60) {
+            continue
+          }
+          if (durationDeltaMinutes > 60) {
+            continue
+          }
+
+          const exactTimeBonus = (startIso === params.baseStartDateTime && endIso === params.baseEndDateTime) ? -4 : 0
+
+          const score =
+            (mode === 'ready' ? 0 : 20) +
+            phasePenalty +
+            combo.carPenalty +
+            severityPenalty(proximity?.severity) +
+            Math.round(timeDistanceMinutes / 8) +
+            Math.round(durationDeltaMinutes / 15) +
+            overlapPenalty +
+            exactTimeBonus
+
+          const impacts = otherOverlap
+            .slice(0, 3)
+            .map((booking) => ({
+              user: booking.user,
+              startDateTime: booking.startDateTime,
+              endDateTime: booking.endDateTime,
+            }))
+
+          const dedupeKey = `${mode}|${startIso}|${endIso}|${combo.assigned.join(',')}`
+          if (seen.has(dedupeKey)) {
+            continue
+          }
+          seen.add(dedupeKey)
+
+          candidates.push({
+            id: dedupeKey,
+            mode,
+            startDateTime: startIso,
+            endDateTime: endIso,
+            requestedCarOption: combo.requested,
+            assignedCars: combo.assigned,
+            score,
+            proximitySeverity: proximity?.severity,
+            proximityGapMinutes: proximity?.minGapMinutes,
+            timeDistanceMinutes,
+            durationDeltaMinutes,
+            keepsRequestedCar: combo.requested === params.requestedCarOption,
+            overrideImpacts: impacts,
+          })
+        }
+      }
+    }
+
+    const readySorted = candidates
+      .filter((option) => option.mode === 'ready')
+      .sort((a, b) => a.score - b.score)
+    const overrideSorted = candidates
+      .filter((option) => option.mode === 'override')
+      .sort((a, b) => a.score - b.score)
+
+    const filterByQuality = (sorted: AutoResolutionOption[]): AutoResolutionOption[] => {
+      if (sorted.length === 0) {
+        return []
+      }
+      const bestScore = sorted[0].score
+      const closeToRequest = sorted.filter((option) =>
+        option.timeDistanceMinutes <= 60 &&
+        option.durationDeltaMinutes <= 30 &&
+        option.score <= bestScore + 6)
+
+      if (closeToRequest.length > 0) {
+        const ranked = closeToRequest
+          .sort((a, b) => {
+            if (a.keepsRequestedCar !== b.keepsRequestedCar) {
+              return a.keepsRequestedCar ? -1 : 1
+            }
+            return a.score - b.score
+          })
+
+        const uniqueByAssignedCars: AutoResolutionOption[] = []
+        const seenCars = new Set<string>()
+        for (const option of ranked) {
+          const carsKey = option.assignedCars.join(',')
+          if (seenCars.has(carsKey)) {
+            continue
+          }
+          seenCars.add(carsKey)
+          uniqueByAssignedCars.push(option)
+          if (uniqueByAssignedCars.length >= 3) {
+            break
+          }
+        }
+
+        if (uniqueByAssignedCars.length > 0) {
+          return uniqueByAssignedCars
+        }
+
+        return ranked.slice(0, 3)
+      }
+
+      return sorted.filter((option) => option.score <= bestScore + 5).slice(0, 2)
+    }
+
+    const exactReady = readySorted.filter((option) =>
+      option.startDateTime === params.baseStartDateTime &&
+      option.endDateTime === params.baseEndDateTime)
+    if (exactReady.length > 0) {
+      return { readyNow: [exactReady[0]], requiresOverride: [] }
+    }
+
+    const readyNow = filterByQuality(readySorted)
+    const remainingSlots = Math.max(0, 3 - readyNow.length)
+    const requiresOverride = remainingSlots > 0 ? filterByQuality(overrideSorted).slice(0, remainingSlots) : []
+
+    return { readyNow, requiresOverride }
+  }
+
+  const runCreateBooking = async (skipProximityCheck: boolean, skipAutoResolution = false) => {
     if (isSubmittingBooking) {
       return
     }
@@ -523,6 +956,31 @@ function App() {
     }
 
     if (!assignedCars) {
+      if (!skipAutoResolution) {
+        const suggestions = buildAutoResolutionSuggestions({
+          currentUser: selectedUser,
+          canUseOverride: canUseUrgentVeto,
+          requestedCarOption: selectedRequestedCarOption,
+          baseStartDateTime: startDateTime,
+          baseEndDateTime: endDateTime,
+          originalAssignedCars: assignedCars ?? undefined,
+        })
+        const switchCandidates = buildCarSwitchCandidates({
+          currentUser: selectedUser,
+          requestedCarOption: selectedRequestedCarOption,
+          requesterStartDateTime: startDateTime,
+          requesterEndDateTime: endDateTime,
+        })
+        if (suggestions.readyNow.length > 0 || suggestions.requiresOverride.length > 0 || switchCandidates.length > 0) {
+          setPendingAutoResolution({
+            action: 'new',
+            readyNow: suggestions.readyNow,
+            requiresOverride: suggestions.requiresOverride,
+            switchCandidates,
+          })
+          return
+        }
+      }
       setNotice({ type: 'error', message: 'No available car for this range. Please choose a different time.' })
       return
     }
@@ -545,7 +1003,7 @@ function App() {
 
     try {
       const attemptInput: AttemptBookingInput = {
-        bookingId: crypto.randomUUID(),
+        bookingId: generateUuid(),
         title: title.trim(),
         userName: selectedUser,
         requestedCarOption: selectedRequestedCarOption,
@@ -558,6 +1016,32 @@ function App() {
       const result = await attemptBooking(attemptInput)
 
       if (result.decision === 'blocked') {
+        if (!skipAutoResolution) {
+          const suggestions = buildAutoResolutionSuggestions({
+            currentUser: selectedUser,
+            canUseOverride: canUseUrgentVeto,
+            requestedCarOption: selectedRequestedCarOption,
+            baseStartDateTime: startDateTime,
+            baseEndDateTime: endDateTime,
+            originalAssignedCars: assignedCars ?? undefined,
+          })
+          const switchCandidates = buildCarSwitchCandidates({
+            currentUser: selectedUser,
+            requestedCarOption: selectedRequestedCarOption,
+            requesterStartDateTime: startDateTime,
+            requesterEndDateTime: endDateTime,
+          })
+          if (suggestions.readyNow.length > 0 || suggestions.requiresOverride.length > 0 || switchCandidates.length > 0) {
+            setPendingAutoResolution({
+              action: 'new',
+              readyNow: suggestions.readyNow,
+              requiresOverride: suggestions.requiresOverride,
+              switchCandidates,
+            })
+            setIsSubmittingBooking(false)
+            return
+          }
+        }
         await refreshBookings()
         setNotice({ type: 'error', message: result.message })
         return
@@ -674,7 +1158,7 @@ function App() {
         }
 
         const result = await attemptBooking({
-          bookingId: crypto.randomUUID(),
+          bookingId: generateUuid(),
           title: title.trim(),
           userName: selectedUser,
           requestedCarOption: selectedRequestedCarOption,
@@ -922,6 +1406,7 @@ function App() {
     proposedStartDateTime: string,
     proposedEndDateTime: string,
     skipProximityCheck: boolean,
+    skipAutoResolution = false,
   ) => {
     const bookingToEdit = bookings.find((booking) => booking.id === bookingId)
     if (!bookingToEdit) {
@@ -953,6 +1438,30 @@ function App() {
     )
 
     if (overlapConflicts.length > 0) {
+      if (!skipAutoResolution) {
+        const canUseOverrideForEdit = isParent && bookingToEdit.isUrgent
+        const suggestions = buildAutoResolutionSuggestions({
+          currentUser: selectedUser,
+          canUseOverride: canUseOverrideForEdit,
+          requestedCarOption: bookingToEdit.requestedCarOption,
+          baseStartDateTime: normalizedStart,
+          baseEndDateTime: normalizedEnd,
+          excludeBookingId: bookingId,
+          originalAssignedCars: bookingToEdit.assignedCars,
+          fixedAssignedCars: bookingToEdit.assignedCars,
+        })
+        if (suggestions.readyNow.length > 0 || suggestions.requiresOverride.length > 0) {
+          setPendingAutoResolution({
+            action: 'edit',
+            bookingId,
+            bookingTitle: proposedTitle,
+            readyNow: suggestions.readyNow,
+            requiresOverride: suggestions.requiresOverride,
+            switchCandidates: [],
+          })
+          return
+        }
+      }
       setNotice({ type: 'error', message: 'This change overlaps another booking, so it cannot be saved.' })
       return
     }
@@ -1147,6 +1656,209 @@ function App() {
     setPendingProximityConfirmation(null)
   }
 
+  const handleApplyAutoResolutionOption = async (option: AutoResolutionOption) => {
+    if (!pendingAutoResolution) {
+      return
+    }
+
+    if (pendingAutoResolution.action === 'new') {
+      const { date, time: start } = splitDateTimeValue(option.startDateTime)
+      const { time: end } = splitDateTimeValue(option.endDateTime)
+      setBookingDate(date)
+      setStartTime(start)
+      setEndTime(end)
+      setSelectedRequestedCarOption(option.requestedCarOption)
+      setPendingAutoResolution(null)
+      setIsSubmittingBooking(true)
+      setNotice(null)
+      try {
+        const attemptInput: AttemptBookingInput = {
+          bookingId: generateUuid(),
+          title: title.trim(),
+          userName: selectedUser,
+          requestedCarOption: option.requestedCarOption,
+          startDateTime: option.startDateTime,
+          endDateTime: option.endDateTime,
+          isUrgent: canUseUrgentVeto,
+          note: '',
+          confirmUrgentOverride: false,
+        }
+        const result = await attemptBooking(attemptInput)
+
+        if (result.decision === 'blocked') {
+          await refreshBookings()
+          setNotice({ type: 'error', message: result.message })
+          return
+        }
+
+        if (result.decision === 'needs_both_cars_decision') {
+          setDuplicateBookingToMergeId(result.existingBookingId)
+          setNotice({ type: 'warning', message: result.message })
+          return
+        }
+
+        if (result.decision === 'needs_urgent_confirmation') {
+          const computedConflicts = buildUrgentConflictCandidates(
+            getConflicts(bookings, option.assignedCars, option.startDateTime, option.endDateTime),
+          )
+          const conflictsForSelection = result.conflictingBookings?.length
+            ? result.conflictingBookings
+            : computedConflicts
+
+          setPendingUrgentConfirmation({
+            attemptInput,
+            conflicts: conflictsForSelection,
+            selectedConflictId: conflictsForSelection[0]?.id ?? null,
+          })
+          return
+        }
+
+        await refreshBookings()
+        setTitle('')
+        setSelectedRequestedCarOption('noPreference')
+
+        if (result.decision === 'created_with_override') {
+          const formattedDate = new Date(result.affectedStartDateTime).toLocaleDateString('he-IL')
+          const formattedTime = `${formatTime(result.affectedStartDateTime)}-${formatTime(result.affectedEndDateTime)}`
+          const notifyMessage = `היי ${result.affectedUserName},
+מצטער/ת אבל נאלצתי לדרוס את בקשת הרכב שלך בתאריך ${formattedDate} בין השעות ${formattedTime}.
+כדאי לבדוק את האפליקציה לעדכון.`
+
+          setOverrideNotifyPayload({
+            affectedName: result.affectedUserName,
+            message: notifyMessage,
+          })
+
+          setNotice({
+            type: 'success',
+            message: result.message,
+          })
+          return
+        }
+
+        setNotice({ type: 'success', message: result.message })
+      } catch (error) {
+        const message = getErrorMessage(error, 'Could not save booking. Please try again.')
+        setNotice({ type: 'error', message })
+      } finally {
+        setIsSubmittingBooking(false)
+      }
+      return
+    }
+
+    setPendingAutoResolution(null)
+    await runEditBooking(
+      pendingAutoResolution.bookingId,
+      pendingAutoResolution.bookingTitle,
+      option.startDateTime,
+      option.endDateTime,
+      false,
+      true,
+    )
+  }
+
+  const handleKeepOriginalAfterAutoResolution = () => {
+    if (!pendingAutoResolution) {
+      return
+    }
+    setPendingAutoResolution(null)
+  }
+
+  const handleRequestCarSwitch = async (candidate: CarSwitchCandidate) => {
+    const duplicatePending = carSwitchRequests.some((request) =>
+      request.status === 'pending' &&
+      request.requesterName === selectedUser &&
+      request.requestedBookingId === candidate.requestedBookingId &&
+      request.requesterStartDateTime === candidate.requesterStartDateTime &&
+      request.requesterEndDateTime === candidate.requesterEndDateTime,
+    )
+    if (duplicatePending) {
+      setNotice({ type: 'warning', message: 'A switch request for this slot is already pending.' })
+      return
+    }
+
+    setIsSubmittingBooking(true)
+    try {
+      const payload: CreateCarSwitchRequestInput = {
+        requesterName: selectedUser,
+        requestedUserName: candidate.requestedUserName,
+        requesterBookingId: generateUuid(),
+        requesterTitle: title.trim(),
+        requesterRequestedCarOption: candidate.requesterRequestedCarOption,
+        requesterStartDateTime: candidate.requesterStartDateTime,
+        requesterEndDateTime: candidate.requesterEndDateTime,
+        requestedBookingId: candidate.requestedBookingId,
+        requestedCurrentCar: candidate.requestedCurrentCar,
+        requestedTargetCar: candidate.requestedTargetCar,
+        expiresAt: candidate.expiresAt,
+      }
+      await createCarSwitchRequest(payload)
+      setPendingAutoResolution(null)
+      await refreshBookings()
+      setSwitchMessagePayload({
+        recipientName: candidate.requestedUserName,
+        message: candidate.whatsappMessage,
+      })
+      setNotice({
+        type: 'success',
+        message: `Switch request sent to ${candidate.requestedUserName}. It will expire automatically if not approved in time.`,
+      })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not send switch request. Please try again.'),
+      })
+    } finally {
+      setIsSubmittingBooking(false)
+    }
+  }
+
+  const handleApproveCarSwitchRequest = async (request: CarSwitchRequest) => {
+    setIsSubmittingBooking(true)
+    try {
+      await approveAndApplyCarSwitchRequest(request)
+      await refreshBookings()
+      setNotice({
+        type: 'success',
+        message: `Switch approved. ${request.requesterName}'s booking was created and your booking was moved to ${request.requestedTargetCar}.`,
+      })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not apply switch request.'),
+      })
+      await refreshBookings()
+    } finally {
+      setIsSubmittingBooking(false)
+    }
+  }
+
+  const handleDeclineCarSwitchRequest = async (requestId: string) => {
+    try {
+      await updateCarSwitchRequestStatus(requestId, 'declined')
+      await refreshBookings()
+      setNotice({ type: 'warning', message: 'Switch request declined.' })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not decline switch request.'),
+      })
+    }
+  }
+
+  const handleCancelCarSwitchRequest = async (requestId: string) => {
+    try {
+      await updateCarSwitchRequestStatus(requestId, 'cancelled')
+      await refreshBookings()
+      setNotice({ type: 'warning', message: 'Switch request cancelled.' })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not cancel switch request.'),
+      })
+    }
+  }
+
   const markBookingNotificationSeen = async (bookingId: string) => {
     try {
       await updateBookingById(bookingId, { notified: true })
@@ -1292,6 +2004,32 @@ function App() {
         </section>
       )}
 
+      {incomingPendingSwitchRequests.map((request) => (
+        <section key={request.id} className="app-notice warning" role="status">
+          <p>
+            {request.requesterName} asks you to switch your car from {request.requestedCurrentCar} to {request.requestedTargetCar}{' '}
+            ({formatTime(request.requesterStartDateTime)}-{formatTime(request.requesterEndDateTime)}). Expires at{' '}
+            {formatDateTime(request.expiresAt)}.
+          </p>
+          <div className="undo-delete-actions">
+            <button type="button" onClick={() => void handleApproveCarSwitchRequest(request)}>Approve & apply</button>
+            <button type="button" onClick={() => void handleDeclineCarSwitchRequest(request.id)}>Decline</button>
+          </div>
+        </section>
+      ))}
+
+      {outgoingPendingSwitchRequests.map((request) => (
+        <section key={request.id} className="app-notice" role="status">
+          <p>
+            Waiting for {request.requestedUserName} to approve car switch ({formatTime(request.requesterStartDateTime)}-
+            {formatTime(request.requesterEndDateTime)}). Expires at {formatDateTime(request.expiresAt)}.
+          </p>
+          <div className="undo-delete-actions">
+            <button type="button" onClick={() => void handleCancelCarSwitchRequest(request.id)}>Cancel request</button>
+          </div>
+        </section>
+      ))}
+
 
       <nav className="view-tabs" aria-label="App views">
         <button
@@ -1372,6 +2110,7 @@ function App() {
             <MyBookings
               currentUser={selectedUser}
               bookings={bookings}
+              switchRequests={carSwitchRequests}
               onDeleteBooking={handleDeleteBooking}
               onEditBooking={handleStartEditBooking}
             />
@@ -1384,6 +2123,16 @@ function App() {
         booking={editingBooking}
         onCancel={handleCancelBookingEdit}
         onSave={handleSaveBookingEdit}
+      />
+
+      <AutoResolutionModal
+        isOpen={pendingAutoResolution !== null}
+        readyNow={pendingAutoResolution?.readyNow ?? []}
+        requiresOverride={pendingAutoResolution?.requiresOverride ?? []}
+        switchCandidates={pendingAutoResolution?.switchCandidates ?? []}
+        onApply={handleApplyAutoResolutionOption}
+        onRequestSwitch={handleRequestCarSwitch}
+        onKeepOriginal={handleKeepOriginalAfterAutoResolution}
       />
 
       <ConfirmModal
@@ -1434,6 +2183,13 @@ function App() {
         affectedName={overrideNotifyPayload?.affectedName ?? ''}
         message={overrideNotifyPayload?.message ?? ''}
         onClose={() => setOverrideNotifyPayload(null)}
+      />
+
+      <SwitchRequestMessageModal
+        isOpen={switchMessagePayload !== null}
+        recipientName={switchMessagePayload?.recipientName ?? ''}
+        message={switchMessagePayload?.message ?? ''}
+        onClose={() => setSwitchMessagePayload(null)}
       />
 
       <UserSelectionModal

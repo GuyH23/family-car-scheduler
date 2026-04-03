@@ -13,6 +13,8 @@ Shared family car booking app built with React, TypeScript, Vite, and Supabase.
 - Recurring delete modal: delete one booking or whole recurring week.
 - Undo delete banner for single and recurring deletions.
 - Neighborhood proximity alerts with 3 levels: low (30-60m), medium (15-30m), high (0-15m).
+- Auto-Resolution Assistant that proposes higher-quality same-day alternatives (up to 3), split into `Ready now` and `Requires urgent override`.
+- Car-switch request flow for blocked single-car requests: ask another user to switch cars, send WhatsApp preset, auto-expire requests, and apply approved switches.
 - Calendar views: Agenda, Daily, Weekly.
 - My Bookings view per current user.
 
@@ -63,14 +65,24 @@ npm run build
    - medium: 15-30 minutes
    - low: 30-60 minutes
    The app asks confirmation before saving when an alert applies.
-5. On submit, booking decision is validated by Supabase RPC (`attempt_booking`) before insert.
-6. If exact-time duplicate (same user, different car), app prompts `Both cars / Cancel`.
-7. If urgent conflicts exist, app asks which booking to override, then confirms.
-8. Delete flow:
+5. If request is blocked or poor quality, Auto-Resolution Assistant suggests best same-day alternatives:
+   - `Ready now` options (no override needed)
+   - `Requires urgent override` options (shown only for parent+urgent flow)
+   - `Exact time via switch request` when another user can move to the other free car
+   - user can apply a suggestion or keep original request
+6. Car-switch request flow:
+   - requester sends switch request to specific user (with WhatsApp preset)
+   - request expires at the earliest of requester start / requested booking start
+   - requested user can approve-and-apply or decline
+   - when approved, requested booking switches cars and requester booking is created automatically
+7. On submit, booking decision is validated by Supabase RPC (`attempt_booking`) before insert.
+8. If exact-time duplicate (same user, different car), app prompts `Both cars / Cancel`.
+9. If urgent conflicts exist, app asks which booking to override, then confirms.
+10. Delete flow:
    - regular booking delete removes one booking
    - recurring-like booking delete prompts `Only this booking` or `Whole recurring week`
    - after deletion, app shows an `Undo` action to restore deleted booking(s)
-9. Calendar updates from shared Supabase data for all devices, plus automatic Google Calendar mirror sync.
+11. Calendar updates from shared Supabase data for all devices, plus automatic Google Calendar mirror sync.
 
 ## Supabase notes
 

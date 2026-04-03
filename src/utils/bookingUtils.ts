@@ -1,5 +1,6 @@
 import { FAMILY_MEMBERS } from '../types'
 import type { Booking, CarFilter, CarId, FamilyMember, RequestedCarOption } from '../types'
+import { generateUuid } from './idUtils'
 
 type LegacyBooking = {
   id?: string
@@ -158,7 +159,7 @@ export function parseStoredBookings(raw: string | null): Booking[] {
       }
 
       return [{
-        id: item.id ?? crypto.randomUUID(),
+        id: item.id ?? generateUuid(),
         title: item.title ?? '',
         user: item.user as Booking['user'],
         requestedCarOption,
