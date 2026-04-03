@@ -120,37 +120,15 @@ export default function BookingForm({
   }
   const selectWorkWeek = () => {
     const workWeekDays = [0, 1, 2, 3, 4]
-    const hasAllWorkDaysSelected = workWeekDays.every((day) => values.recurringWeekdays.includes(day))
-
-    if (hasAllWorkDaysSelected) {
-      onFieldChange(
-        'recurringWeekdays',
-        values.recurringWeekdays.filter((day) => !workWeekDays.includes(day)),
-      )
-      return
-    }
-
-    onFieldChange(
-      'recurringWeekdays',
-      [...new Set([...values.recurringWeekdays, ...workWeekDays])].sort((a, b) => a - b),
-    )
+    const isExactlyWorkWeek = values.recurringWeekdays.length === workWeekDays.length &&
+      workWeekDays.every((day) => values.recurringWeekdays.includes(day))
+    onFieldChange('recurringWeekdays', isExactlyWorkWeek ? [] : workWeekDays)
   }
   const selectRuthSchedule = () => {
     const ruthDays = [0, 1, 2, 4, 5]
-    const hasAllRuthDaysSelected = ruthDays.every((day) => values.recurringWeekdays.includes(day))
-
-    if (hasAllRuthDaysSelected) {
-      onFieldChange(
-        'recurringWeekdays',
-        values.recurringWeekdays.filter((day) => !ruthDays.includes(day)),
-      )
-      return
-    }
-
-    onFieldChange(
-      'recurringWeekdays',
-      [...new Set([...values.recurringWeekdays, ...ruthDays])].sort((a, b) => a - b),
-    )
+    const isExactlyRuthDays = values.recurringWeekdays.length === ruthDays.length &&
+      ruthDays.every((day) => values.recurringWeekdays.includes(day))
+    onFieldChange('recurringWeekdays', isExactlyRuthDays ? [] : ruthDays)
   }
   const recurringLabelWithDate = (weekday: number): string => {
     const baseLabel = WEEKDAY_OPTIONS.find((item) => item.value === weekday)?.label ?? ''
