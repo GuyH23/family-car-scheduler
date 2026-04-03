@@ -184,6 +184,38 @@ export async function createBooking(booking: Booking): Promise<void> {
   }
 }
 
+export async function restoreDeletedBookings(bookings: Booking[]): Promise<void> {
+  if (bookings.length === 0) {
+    return
+  }
+
+  const rows = bookings.map((booking) => ({
+    id: booking.id,
+    title: booking.title ?? null,
+    user_name: booking.user,
+    requested_car_option: booking.requestedCarOption,
+    assigned_cars: booking.assignedCars,
+    start_datetime: booking.startDateTime,
+    end_datetime: booking.endDateTime,
+    is_urgent: booking.isUrgent,
+    note: booking.note ?? null,
+    status: booking.status,
+    overridden_by_booking_id: booking.overriddenByBookingId ?? null,
+    notified: booking.notified ?? false,
+    created_at: booking.createdAt,
+  }))
+
+  const { error } = await supabase
+    .from('bookings')
+    .upsert(rows, { onConflict: 'id' })
+
+  if (error) {
+    throw error
+  }
+
+  await syncBookingIdsToCalendar(bookings.map((booking) => booking.id))
+}
+
 export type AttemptBookingInput = {
   bookingId: string
   title: string

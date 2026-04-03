@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import BookingForm from './components/BookingForm'
 import ConfirmModal from './components/ConfirmModal'
@@ -29,6 +29,7 @@ import {
   confirmBothCarsForExistingBooking,
   deleteBookingById,
   listBookings,
+  restoreDeletedBookings,
   syncCalendarBacklog,
   type UrgentConflictCandidate,
   updateBookingById,
@@ -64,13 +65,21 @@ type Notice = {
   type: 'success' | 'error' | 'warning'
   message: string
 }
+type ProximitySeverity = 'low' | 'medium' | 'high'
+type ProximityAlert = {
+  severity: ProximitySeverity
+  minGapMinutes: number
+  details: string[]
+}
 type PendingProximityConfirmation =
-  | { action: 'new'; message: string }
+  | { action: 'new'; title: string; message: string; severity: ProximitySeverity }
   | {
     action: 'edit'
+    modalTitle: string
     message: string
+    severity: ProximitySeverity
     bookingId: string
-    title: string
+    bookingTitle: string
     startDateTime: string
     endDateTime: string
   }
@@ -79,8 +88,9 @@ type PendingRecurringDeleteConfirmation = {
   relatedBookingIds: string[]
   weekLabel: string
 }
-
-const PROXIMITY_WARNING_MS = 30 * 60 * 1000
+type PendingUndoDelete = {
+  bookings: Booking[]
+}
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) {
@@ -148,13 +158,56 @@ function timeOfDayFromIso(dateTime: string): string {
   return splitDateTimeValue(dateTime).time
 }
 
-function getProximityWarningMessage(
+function proximitySeverityFromGapMinutes(gapMinutes: number): ProximitySeverity | null {
+  if (gapMinutes < 0 || gapMinutes > 60) {
+    return null
+  }
+  if (gapMinutes <= 15) {
+    return 'high'
+  }
+  if (gapMinutes <= 30) {
+    return 'medium'
+  }
+  return 'low'
+}
+
+function proximitySeverityRank(severity: ProximitySeverity): number {
+  if (severity === 'high') {
+    return 3
+  }
+  if (severity === 'medium') {
+    return 2
+  }
+  return 1
+}
+
+function proximityTitleFromSeverity(severity: ProximitySeverity): string {
+  if (severity === 'high') {
+    return 'High proximity alert'
+  }
+  if (severity === 'medium') {
+    return 'Medium proximity alert'
+  }
+  return 'Low proximity alert'
+}
+
+function proximityLabelFromSeverity(severity: ProximitySeverity): string {
+  if (severity === 'high') {
+    return 'HIGH'
+  }
+  if (severity === 'medium') {
+    return 'MEDIUM'
+  }
+  return 'LOW'
+}
+
+function getProximityAlert(
   sourceBookings: Booking[],
   assignedCars: CarId[],
   startDateTime: string,
   endDateTime: string,
   excludeBookingId?: string,
-): string | null {
+): ProximityAlert | null {
   const startMs = new Date(startDateTime).getTime()
   const endMs = new Date(endDateTime).getTime()
 
@@ -194,25 +247,46 @@ function getProximityWarningMessage(
     }
   }
 
-  const warnings: string[] = []
+  const details: string[] = []
+  const severities: ProximitySeverity[] = []
+  const gapMinutes: number[] = []
 
-  if (nearestPrevious && nearestPreviousGap <= PROXIMITY_WARNING_MS) {
-    warnings.push(
-      `Starts ${Math.round(nearestPreviousGap / 60000)} min after ${nearestPrevious.user}'s booking (${formatTime(nearestPrevious.startDateTime)}-${formatTime(nearestPrevious.endDateTime)}).`,
-    )
+  if (nearestPrevious && nearestPreviousGap <= 60 * 60 * 1000) {
+    const gap = Math.round(nearestPreviousGap / 60000)
+    const severity = proximitySeverityFromGapMinutes(gap)
+    if (severity) {
+      details.push(
+        `Starts ${gap} min after ${nearestPrevious.user}'s booking (${formatTime(nearestPrevious.startDateTime)}-${formatTime(nearestPrevious.endDateTime)}).`,
+      )
+      severities.push(severity)
+      gapMinutes.push(gap)
+    }
   }
 
-  if (nearestNext && nearestNextGap <= PROXIMITY_WARNING_MS) {
-    warnings.push(
-      `Ends ${Math.round(nearestNextGap / 60000)} min before ${nearestNext.user}'s booking (${formatTime(nearestNext.startDateTime)}-${formatTime(nearestNext.endDateTime)}).`,
-    )
+  if (nearestNext && nearestNextGap <= 60 * 60 * 1000) {
+    const gap = Math.round(nearestNextGap / 60000)
+    const severity = proximitySeverityFromGapMinutes(gap)
+    if (severity) {
+      details.push(
+        `Ends ${gap} min before ${nearestNext.user}'s booking (${formatTime(nearestNext.startDateTime)}-${formatTime(nearestNext.endDateTime)}).`,
+      )
+      severities.push(severity)
+      gapMinutes.push(gap)
+    }
   }
 
-  if (warnings.length === 0) {
+  if (severities.length === 0 || details.length === 0 || gapMinutes.length === 0) {
     return null
   }
 
-  return `This booking is very close to another booking. ${warnings.join(' ')} Continue anyway?`
+  const severity = severities.reduce((best, current) =>
+    proximitySeverityRank(current) > proximitySeverityRank(best) ? current : best)
+
+  return {
+    severity,
+    minGapMinutes: Math.min(...gapMinutes),
+    details,
+  }
 }
 
 function App() {
@@ -232,8 +306,12 @@ function App() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
   const [pendingProximityConfirmation, setPendingProximityConfirmation] = useState<PendingProximityConfirmation | null>(null)
   const [pendingRecurringDelete, setPendingRecurringDelete] = useState<PendingRecurringDeleteConfirmation | null>(null)
+  const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null)
+  const [undoSecondsLeft, setUndoSecondsLeft] = useState(0)
   const [isUserSelectionModalOpen, setIsUserSelectionModalOpen] = useState(false)
   const [hasLoadedUserPreference, setHasLoadedUserPreference] = useState(false)
+  const undoDeleteTimerRef = useRef<number | null>(null)
+  const undoDeleteIntervalRef = useRef<number | null>(null)
 
   const initialStart = useMemo(() => {
     const nextHour = new Date()
@@ -312,6 +390,15 @@ function App() {
     localStorage.setItem(THEME_KEY, theme)
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  useEffect(() => () => {
+    if (undoDeleteTimerRef.current !== null) {
+      window.clearTimeout(undoDeleteTimerRef.current)
+    }
+    if (undoDeleteIntervalRef.current !== null) {
+      window.clearInterval(undoDeleteIntervalRef.current)
+    }
+  }, [])
 
   const startDateTime = combineDateAndTime(bookingDate, startTime)
   const endDateTime = combineDateAndTime(bookingDate, endTime)
@@ -441,11 +528,13 @@ function App() {
     }
 
     if (!skipProximityCheck) {
-      const warningMessage = getProximityWarningMessage(bookings, assignedCars, startDateTime, endDateTime)
-      if (warningMessage) {
+      const alert = getProximityAlert(bookings, assignedCars, startDateTime, endDateTime)
+      if (alert) {
         setPendingProximityConfirmation({
           action: 'new',
-          message: warningMessage,
+          title: proximityTitleFromSeverity(alert.severity),
+          message: `${proximityLabelFromSeverity(alert.severity)} proximity (${alert.minGapMinutes} min). ${alert.details.join(' ')} Continue anyway?`,
+          severity: alert.severity,
         })
         return
       }
@@ -573,13 +662,13 @@ function App() {
           continue
         }
 
-        const proximityMessage = getProximityWarningMessage(bookings, assignedForDate, start, end)
-        if (proximityMessage) {
+        const alert = getProximityAlert(bookings, assignedForDate, start, end)
+        if (alert) {
           const confirmCloseBooking = window.confirm(
-            `${date}: ${proximityMessage.replace(' Continue anyway?', '')}\n\nContinue for this date?`,
+            `${date}: ${proximityLabelFromSeverity(alert.severity)} proximity (${alert.minGapMinutes} min). ${alert.details.join(' ')}\n\nContinue for this date?`,
           )
           if (!confirmCloseBooking) {
-            skipped.push(`${date}: skipped by user (close to another booking)`)
+            skipped.push(`${date}: skipped by user (${alert.severity} proximity)`)
             continue
           }
         }
@@ -684,6 +773,39 @@ function App() {
     }
   }
 
+  const queueUndoDelete = (deletedBookings: Booking[]) => {
+    if (undoDeleteTimerRef.current !== null) {
+      window.clearTimeout(undoDeleteTimerRef.current)
+    }
+    if (undoDeleteIntervalRef.current !== null) {
+      window.clearInterval(undoDeleteIntervalRef.current)
+    }
+    setNotice(null)
+    setPendingUndoDelete({ bookings: deletedBookings })
+    setUndoSecondsLeft(15)
+    undoDeleteIntervalRef.current = window.setInterval(() => {
+      setUndoSecondsLeft((current) => {
+        if (current <= 1) {
+          if (undoDeleteIntervalRef.current !== null) {
+            window.clearInterval(undoDeleteIntervalRef.current)
+            undoDeleteIntervalRef.current = null
+          }
+          return 0
+        }
+        return current - 1
+      })
+    }, 1000)
+    undoDeleteTimerRef.current = window.setTimeout(() => {
+      setPendingUndoDelete(null)
+      setUndoSecondsLeft(0)
+      if (undoDeleteIntervalRef.current !== null) {
+        window.clearInterval(undoDeleteIntervalRef.current)
+        undoDeleteIntervalRef.current = null
+      }
+      undoDeleteTimerRef.current = null
+    }, 15000)
+  }
+
   const handleDeleteBooking = async (bookingId: string) => {
     const targetBooking = bookings.find((booking) => booking.id === bookingId)
     if (!targetBooking) {
@@ -709,7 +831,7 @@ function App() {
     try {
       await deleteBookingById(bookingId)
       await refreshBookings()
-      setNotice({ type: 'success', message: 'Booking deleted successfully.' })
+      queueUndoDelete([targetBooking])
     } catch {
       setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
     }
@@ -720,11 +842,14 @@ function App() {
       return
     }
     const bookingId = pendingRecurringDelete.bookingId
+    const deletedBooking = bookings.find((booking) => booking.id === bookingId) ?? null
     setPendingRecurringDelete(null)
     try {
       await deleteBookingById(bookingId)
       await refreshBookings()
-      setNotice({ type: 'success', message: 'Booking deleted successfully.' })
+      if (deletedBooking) {
+        queueUndoDelete([deletedBooking])
+      }
     } catch {
       setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
     }
@@ -735,14 +860,55 @@ function App() {
       return
     }
     const idsToDelete = [pendingRecurringDelete.bookingId, ...pendingRecurringDelete.relatedBookingIds]
+    const deletedBookings = bookings.filter((booking) => idsToDelete.includes(booking.id))
     setPendingRecurringDelete(null)
     try {
       await deleteBookingsByIds(idsToDelete)
       await refreshBookings()
-      setNotice({ type: 'success', message: `Deleted ${idsToDelete.length} bookings from this recurring week.` })
+      if (deletedBookings.length > 0) {
+        queueUndoDelete(deletedBookings)
+      }
     } catch {
       setNotice({ type: 'error', message: 'Could not delete all recurring bookings. Please try again.' })
     }
+  }
+
+  const handleUndoDelete = async () => {
+    if (!pendingUndoDelete) {
+      return
+    }
+    const restorePayload = pendingUndoDelete.bookings
+    setPendingUndoDelete(null)
+    if (undoDeleteTimerRef.current !== null) {
+      window.clearTimeout(undoDeleteTimerRef.current)
+      undoDeleteTimerRef.current = null
+    }
+    if (undoDeleteIntervalRef.current !== null) {
+      window.clearInterval(undoDeleteIntervalRef.current)
+      undoDeleteIntervalRef.current = null
+    }
+    setUndoSecondsLeft(0)
+
+    try {
+      await restoreDeletedBookings(restorePayload)
+      await refreshBookings()
+      setNotice({ type: 'success', message: 'Deleted booking(s) restored.' })
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error, 'Could not undo delete. Please try again.') })
+    }
+  }
+
+  const handleDismissUndoDelete = () => {
+    setPendingUndoDelete(null)
+    if (undoDeleteTimerRef.current !== null) {
+      window.clearTimeout(undoDeleteTimerRef.current)
+      undoDeleteTimerRef.current = null
+    }
+    if (undoDeleteIntervalRef.current !== null) {
+      window.clearInterval(undoDeleteIntervalRef.current)
+      undoDeleteIntervalRef.current = null
+    }
+    setUndoSecondsLeft(0)
   }
 
   const handleStartEditBooking = (booking: Booking) => {
@@ -792,19 +958,21 @@ function App() {
     }
 
     if (!skipProximityCheck) {
-      const warningMessage = getProximityWarningMessage(
+      const alert = getProximityAlert(
         bookings,
         bookingToEdit.assignedCars,
         normalizedStart,
         normalizedEnd,
         bookingId,
       )
-      if (warningMessage) {
+      if (alert) {
         setPendingProximityConfirmation({
           action: 'edit',
-          message: warningMessage,
+          modalTitle: proximityTitleFromSeverity(alert.severity),
+          message: `${proximityLabelFromSeverity(alert.severity)} proximity (${alert.minGapMinutes} min). ${alert.details.join(' ')} Continue anyway?`,
+          severity: alert.severity,
           bookingId,
-          title: proposedTitle,
+          bookingTitle: proposedTitle,
           startDateTime: normalizedStart,
           endDateTime: normalizedEnd,
         })
@@ -972,7 +1140,7 @@ function App() {
       return
     }
 
-    await runEditBooking(action.bookingId, action.title, action.startDateTime, action.endDateTime, true)
+    await runEditBooking(action.bookingId, action.bookingTitle, action.startDateTime, action.endDateTime, true)
   }
 
   const handleCancelProximity = () => {
@@ -1093,6 +1261,21 @@ function App() {
         </section>
       )}
 
+      {pendingUndoDelete && (
+        <section className="app-notice warning" role="status">
+          <p>
+            {pendingUndoDelete.bookings.length > 1
+              ? `Deleted ${pendingUndoDelete.bookings.length} bookings.`
+              : 'Booking deleted.'}{' '}
+            Undo in {undoSecondsLeft}s?
+          </p>
+          <div className="undo-delete-actions">
+            <button type="button" onClick={handleUndoDelete}>Undo</button>
+            <button type="button" onClick={handleDismissUndoDelete}>Dismiss</button>
+          </div>
+        </section>
+      )}
+
       {pendingOverrideNotification && (
         <section className="override-notice" role="status">
           <div>
@@ -1205,8 +1388,13 @@ function App() {
 
       <ConfirmModal
         isOpen={pendingProximityConfirmation !== null}
-        title="Bookings are very close"
+        title={pendingProximityConfirmation
+          ? (pendingProximityConfirmation.action === 'new'
+              ? pendingProximityConfirmation.title
+              : pendingProximityConfirmation.modalTitle)
+          : 'Proximity alert'}
         message={pendingProximityConfirmation?.message ?? ''}
+        tone={pendingProximityConfirmation?.severity ?? 'default'}
         primaryLabel="Continue"
         secondaryLabel="Go back"
         onPrimary={handleConfirmProximity}

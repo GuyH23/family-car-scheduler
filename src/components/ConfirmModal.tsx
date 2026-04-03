@@ -2,6 +2,7 @@ type ConfirmModalProps = {
   isOpen: boolean
   title: string
   message: string
+  tone?: 'default' | 'low' | 'medium' | 'high'
   primaryLabel: string
   secondaryLabel: string
   onPrimary: () => void
@@ -12,6 +13,7 @@ export default function ConfirmModal({
   isOpen,
   title,
   message,
+  tone = 'default',
   primaryLabel,
   secondaryLabel,
   onPrimary,
@@ -23,7 +25,7 @@ export default function ConfirmModal({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal-card">
+      <div className={`modal-card modal-card--${tone}`}>
         <h3>{title}</h3>
         <p>{message}</p>
         <div className="modal-actions">

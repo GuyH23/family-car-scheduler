@@ -96,6 +96,11 @@
   font-size: 0.8rem;
 }
 
+.undo-delete-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .panel {
   background: #fff;
   border: 1px solid #dfe3ea;
@@ -1035,6 +1040,21 @@
   border-radius: 12px;
   padding: 14px;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+}
+
+.modal-card--low {
+  background: #fffef7;
+  border-color: #facc15;
+}
+
+.modal-card--medium {
+  background: #fffaf0;
+  border-color: #fdba74;
+}
+
+.modal-card--high {
+  background: #fef2f2;
+  border-color: #fca5a5;
 }
 
 .modal-card h3 {

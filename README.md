@@ -8,6 +8,11 @@ Shared family car booking app built with React, TypeScript, Vite, and Supabase.
 - Supports 2 cars: White and Red.
 - Booking options: White, Red, No preference, Both cars.
 - Conflict prevention and urgent override flow.
+- Edit existing booking title/time with overlap protection and close-booking warning.
+- Recurring booking creation within a selected week (weekday picker + quick presets).
+- Recurring delete modal: delete one booking or whole recurring week.
+- Undo delete banner for single and recurring deletions.
+- Neighborhood proximity alerts with 3 levels: low (30-60m), medium (15-30m), high (0-15m).
 - Calendar views: Agenda, Daily, Weekly.
 - My Bookings view per current user.
 
@@ -50,12 +55,22 @@ npm run build
 2. Create booking:
    - choose car option
    - choose date + time range
+   - optional recurring mode (pick weekdays in same week)
    - optionally mark urgent (Mom/Dad only)
 3. Pre-save availability panel shows if slot is possible and who occupies conflicts.
-4. On submit, booking decision is validated by Supabase RPC (`attempt_booking`) before insert.
-5. If exact-time duplicate (same user, different car), app prompts `Both cars / Cancel`.
-6. If urgent conflicts exist, app asks which booking to override, then confirms.
-7. Calendar updates from shared Supabase data for all devices.
+4. Neighborhood proximity alert runs against nearest adjacent bookings on overlapping car(s):
+   - high: 0-15 minutes
+   - medium: 15-30 minutes
+   - low: 30-60 minutes
+   The app asks confirmation before saving when an alert applies.
+5. On submit, booking decision is validated by Supabase RPC (`attempt_booking`) before insert.
+6. If exact-time duplicate (same user, different car), app prompts `Both cars / Cancel`.
+7. If urgent conflicts exist, app asks which booking to override, then confirms.
+8. Delete flow:
+   - regular booking delete removes one booking
+   - recurring-like booking delete prompts `Only this booking` or `Whole recurring week`
+   - after deletion, app shows an `Undo` action to restore deleted booking(s)
+9. Calendar updates from shared Supabase data for all devices, plus automatic Google Calendar mirror sync.
 
 ## Supabase notes
 
