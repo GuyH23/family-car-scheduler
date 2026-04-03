@@ -5,9 +5,10 @@ type MyBookingsProps = {
   currentUser: FamilyMember
   bookings: Booking[]
   onDeleteBooking: (bookingId: string) => void
+  onEditBooking: (booking: Booking) => void
 }
 
-export default function MyBookings({ currentUser, bookings, onDeleteBooking }: MyBookingsProps) {
+export default function MyBookings({ currentUser, bookings, onDeleteBooking, onEditBooking }: MyBookingsProps) {
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)
 
@@ -51,17 +52,28 @@ export default function MyBookings({ currentUser, bookings, onDeleteBooking }: M
                     >
                       <div className="my-booking-main">
                         <strong>{booking.title?.trim() || 'Untitled booking'}</strong>
-                        <button
-                          type="button"
-                          className="small-delete-btn"
-                          onClick={() => {
-                            if (window.confirm('Delete this booking?')) {
-                              onDeleteBooking(booking.id)
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
+                        <div className="my-booking-actions">
+                          {booking.status === 'active' && (
+                            <button
+                              type="button"
+                              className="small-edit-btn"
+                              onClick={() => onEditBooking(booking)}
+                            >
+                              Edit hours
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="small-delete-btn"
+                            onClick={() => {
+                              if (window.confirm('Delete this booking?')) {
+                                onDeleteBooking(booking.id)
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
                       <p>
                         {formatTime(booking.startDateTime)} - {formatTime(booking.endDateTime)}

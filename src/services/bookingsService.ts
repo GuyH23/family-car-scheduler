@@ -354,6 +354,22 @@ export async function updateBookingsByIds(ids: string[], patch: BookingPatch): P
   }
 }
 
+export async function updateBookingTimeRangeById(id: string, startDateTime: string, endDateTime: string): Promise<void> {
+  const { error } = await supabase
+    .from('bookings')
+    .update({
+      start_datetime: startDateTime,
+      end_datetime: endDateTime,
+    })
+    .eq('id', id)
+
+  if (error) {
+    throw error
+  }
+
+  await syncBookingIdsToCalendar([id])
+}
+
 export async function deleteBookingById(id: string): Promise<void> {
   const booking = await getBookingById(id)
 

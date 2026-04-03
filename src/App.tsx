@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import BookingForm from './components/BookingForm'
 import ConfirmModal from './components/ConfirmModal'
+import EditBookingTimeModal from './components/EditBookingTimeModal'
 import MyBookings from './components/MyBookings'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
 import UrgentOverrideSelectionModal from './components/UrgentOverrideSelectionModal'
@@ -29,6 +30,7 @@ import {
   syncCalendarBacklog,
   type UrgentConflictCandidate,
   updateBookingById,
+  updateBookingTimeRangeById,
 } from './services/bookingsService'
 import type { AttemptBookingInput } from './services/bookingsService'
 import './App.css'
@@ -52,6 +54,17 @@ type Notice = {
   type: 'success' | 'error' | 'warning'
   message: string
 }
+type PendingProximityConfirmation =
+  | { action: 'new'; message: string }
+  | {
+    action: 'edit'
+    message: string
+    bookingId: string
+    startDateTime: string
+    endDateTime: string
+  }
+
+const PROXIMITY_WARNING_MS = 30 * 60 * 1000
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) {
@@ -103,6 +116,77 @@ function resolveAssignedCarsForRequest(
   return null
 }
 
+function hasCarIntersection(a: CarId[], b: CarId[]): boolean {
+  return a.some((car) => b.includes(car))
+}
+
+function getProximityWarningMessage(
+  sourceBookings: Booking[],
+  assignedCars: CarId[],
+  startDateTime: string,
+  endDateTime: string,
+  excludeBookingId?: string,
+): string | null {
+  const startMs = new Date(startDateTime).getTime()
+  const endMs = new Date(endDateTime).getTime()
+
+  let nearestPrevious: Booking | null = null
+  let nearestPreviousGap = Number.POSITIVE_INFINITY
+  let nearestNext: Booking | null = null
+  let nearestNextGap = Number.POSITIVE_INFINITY
+
+  for (const booking of sourceBookings) {
+    if (booking.status !== 'active') {
+      continue
+    }
+    if (excludeBookingId && booking.id === excludeBookingId) {
+      continue
+    }
+    if (!hasCarIntersection(booking.assignedCars, assignedCars)) {
+      continue
+    }
+
+    const otherStartMs = new Date(booking.startDateTime).getTime()
+    const otherEndMs = new Date(booking.endDateTime).getTime()
+
+    if (otherEndMs <= startMs) {
+      const gap = startMs - otherEndMs
+      if (gap < nearestPreviousGap) {
+        nearestPreviousGap = gap
+        nearestPrevious = booking
+      }
+    }
+
+    if (otherStartMs >= endMs) {
+      const gap = otherStartMs - endMs
+      if (gap < nearestNextGap) {
+        nearestNextGap = gap
+        nearestNext = booking
+      }
+    }
+  }
+
+  const warnings: string[] = []
+
+  if (nearestPrevious && nearestPreviousGap <= PROXIMITY_WARNING_MS) {
+    warnings.push(
+      `Starts ${Math.round(nearestPreviousGap / 60000)} min after ${nearestPrevious.user}'s booking (${formatTime(nearestPrevious.startDateTime)}-${formatTime(nearestPrevious.endDateTime)}).`,
+    )
+  }
+
+  if (nearestNext && nearestNextGap <= PROXIMITY_WARNING_MS) {
+    warnings.push(
+      `Ends ${Math.round(nearestNextGap / 60000)} min before ${nearestNext.user}'s booking (${formatTime(nearestNext.startDateTime)}-${formatTime(nearestNext.endDateTime)}).`,
+    )
+  }
+
+  if (warnings.length === 0) {
+    return null
+  }
+
+  return `This booking is very close to another booking. ${warnings.join(' ')} Continue anyway?`
+}
+
 function App() {
   const [activeView, setActiveView] = useState<AppView>('booking')
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -117,6 +201,8 @@ function App() {
   const [duplicateBookingToMergeId, setDuplicateBookingToMergeId] = useState<string | null>(null)
   const [pendingUrgentConfirmation, setPendingUrgentConfirmation] = useState<PendingUrgentConfirmation | null>(null)
   const [overrideNotifyPayload, setOverrideNotifyPayload] = useState<OverrideNotifyPayload | null>(null)
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
+  const [pendingProximityConfirmation, setPendingProximityConfirmation] = useState<PendingProximityConfirmation | null>(null)
   const [isUserSelectionModalOpen, setIsUserSelectionModalOpen] = useState(false)
   const [hasLoadedUserPreference, setHasLoadedUserPreference] = useState(false)
 
@@ -284,21 +370,36 @@ function App() {
     return buildUrgentConflictCandidates(conflicts)
   }
 
-  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const runCreateBooking = async (skipProximityCheck: boolean) => {
     if (isSubmittingBooking) {
       return
+    }
+
+    if (!hasValidRange) {
+      setNotice({ type: 'error', message: 'Please choose a valid time range and an available slot.' })
+      return
+    }
+
+    if (!assignedCars) {
+      setNotice({ type: 'error', message: 'No available car for this range. Please choose a different time.' })
+      return
+    }
+
+    if (!skipProximityCheck) {
+      const warningMessage = getProximityWarningMessage(bookings, assignedCars, startDateTime, endDateTime)
+      if (warningMessage) {
+        setPendingProximityConfirmation({
+          action: 'new',
+          message: warningMessage,
+        })
+        return
+      }
     }
 
     setIsSubmittingBooking(true)
     setNotice(null)
 
     try {
-      if (!hasValidRange) {
-        setNotice({ type: 'error', message: 'Please choose a valid time range and an available slot.' })
-        return
-      }
-
       const attemptInput: AttemptBookingInput = {
         bookingId: crypto.randomUUID(),
         title: title.trim(),
@@ -371,6 +472,11 @@ function App() {
     }
   }
 
+  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await runCreateBooking(false)
+  }
+
   const handleDeleteBooking = async (bookingId: string) => {
     try {
       await deleteBookingById(bookingId)
@@ -379,6 +485,99 @@ function App() {
     } catch {
       setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
     }
+  }
+
+  const handleStartEditBooking = (booking: Booking) => {
+    setEditingBooking(booking)
+    setNotice(null)
+  }
+
+  const runEditBooking = async (
+    bookingId: string,
+    proposedStartDateTime: string,
+    proposedEndDateTime: string,
+    skipProximityCheck: boolean,
+  ) => {
+    const bookingToEdit = bookings.find((booking) => booking.id === bookingId)
+    if (!bookingToEdit) {
+      setNotice({ type: 'error', message: 'Could not find that booking anymore. Please refresh and try again.' })
+      setEditingBooking(null)
+      return
+    }
+
+    const parsedStart = new Date(proposedStartDateTime)
+    const parsedEnd = new Date(proposedEndDateTime)
+    if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+      setNotice({ type: 'error', message: 'Please select valid date/time values.' })
+      return
+    }
+
+    const normalizedStart = parsedStart.toISOString()
+    const normalizedEnd = parsedEnd.toISOString()
+
+    if (!isValidDateRange(normalizedStart, normalizedEnd)) {
+      setNotice({ type: 'error', message: 'Please choose a valid time range.' })
+      return
+    }
+
+    const overlapConflicts = getConflicts(
+      bookings.filter((booking) => booking.id !== bookingId),
+      bookingToEdit.assignedCars,
+      normalizedStart,
+      normalizedEnd,
+    )
+
+    if (overlapConflicts.length > 0) {
+      setNotice({ type: 'error', message: 'This change overlaps another booking, so it cannot be saved.' })
+      return
+    }
+
+    if (!skipProximityCheck) {
+      const warningMessage = getProximityWarningMessage(
+        bookings,
+        bookingToEdit.assignedCars,
+        normalizedStart,
+        normalizedEnd,
+        bookingId,
+      )
+      if (warningMessage) {
+        setPendingProximityConfirmation({
+          action: 'edit',
+          message: warningMessage,
+          bookingId,
+          startDateTime: normalizedStart,
+          endDateTime: normalizedEnd,
+        })
+        return
+      }
+    }
+
+    setIsSubmittingBooking(true)
+    setNotice(null)
+    try {
+      await updateBookingTimeRangeById(bookingId, normalizedStart, normalizedEnd)
+      await refreshBookings()
+      setEditingBooking(null)
+      setNotice({ type: 'success', message: 'Booking hours updated successfully.' })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not update booking hours. Please try again.'),
+      })
+    } finally {
+      setIsSubmittingBooking(false)
+    }
+  }
+
+  const handleSaveBookingEdit = async (proposedStartDateTime: string, proposedEndDateTime: string) => {
+    if (!editingBooking) {
+      return
+    }
+    await runEditBooking(editingBooking.id, proposedStartDateTime, proposedEndDateTime, false)
+  }
+
+  const handleCancelBookingEdit = () => {
+    setEditingBooking(null)
   }
 
   const handleUseBothCarsForDuplicate = async () => {
@@ -498,6 +697,26 @@ function App() {
         selectedConflictId: bookingId,
       }
     })
+  }
+
+  const handleConfirmProximity = async () => {
+    if (!pendingProximityConfirmation) {
+      return
+    }
+
+    const action = pendingProximityConfirmation
+    setPendingProximityConfirmation(null)
+
+    if (action.action === 'new') {
+      await runCreateBooking(true)
+      return
+    }
+
+    await runEditBooking(action.bookingId, action.startDateTime, action.endDateTime, true)
+  }
+
+  const handleCancelProximity = () => {
+    setPendingProximityConfirmation(null)
   }
 
   const markBookingNotificationSeen = async (bookingId: string) => {
@@ -679,16 +898,39 @@ function App() {
               bookings={bookings}
               currentUser={selectedUser}
               onDeleteBooking={handleDeleteBooking}
+              onEditBooking={handleStartEditBooking}
             />
           </ViewShell>
         )}
 
         {!isLoadingBookings && activeView === 'myBookings' && (
           <ViewShell>
-            <MyBookings currentUser={selectedUser} bookings={bookings} onDeleteBooking={handleDeleteBooking} />
+            <MyBookings
+              currentUser={selectedUser}
+              bookings={bookings}
+              onDeleteBooking={handleDeleteBooking}
+              onEditBooking={handleStartEditBooking}
+            />
           </ViewShell>
         )}
       </section>
+
+      <EditBookingTimeModal
+        isOpen={editingBooking !== null}
+        booking={editingBooking}
+        onCancel={handleCancelBookingEdit}
+        onSave={handleSaveBookingEdit}
+      />
+
+      <ConfirmModal
+        isOpen={pendingProximityConfirmation !== null}
+        title="Bookings are very close"
+        message={pendingProximityConfirmation?.message ?? ''}
+        primaryLabel="Continue"
+        secondaryLabel="Go back"
+        onPrimary={handleConfirmProximity}
+        onSecondary={handleCancelProximity}
+      />
 
       <ConfirmModal
         isOpen={duplicateBookingToMergeId !== null}

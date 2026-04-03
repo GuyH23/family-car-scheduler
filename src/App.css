@@ -728,7 +728,7 @@
 
 .delete-event-btn {
   position: absolute;
-  top: 2px;
+  top: 18px;
   right: 2px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
@@ -744,6 +744,31 @@
   background: #fee2e2;
   border-color: #fecaca;
   color: #991b1b;
+}
+
+.edit-event-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d4ed8;
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.edit-event-btn:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.agenda-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tags {
@@ -907,6 +932,35 @@
   padding: 4px 8px;
   font-size: 0.76rem;
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.my-booking-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.small-edit-btn {
+  border: 1px solid #bfdbfe;
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.76rem;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.edit-booking-modal-form {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.edit-booking-modal-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #334155;
 }
 
 .modal-backdrop {

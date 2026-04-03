@@ -13,6 +13,7 @@ type WeeklyCalendarProps = {
   bookings: Booking[]
   currentUser: FamilyMember
   onDeleteBooking: (bookingId: string) => void
+  onEditBooking: (booking: Booking) => void
 }
 type CalendarSubView = 'agenda' | 'daily' | 'weekly'
 
@@ -153,6 +154,7 @@ export default function WeeklyCalendar({
   bookings,
   currentUser,
   onDeleteBooking,
+  onEditBooking,
 }: WeeklyCalendarProps) {
   const [subView, setSubView] = useState<CalendarSubView>('agenda')
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()))
@@ -407,18 +409,29 @@ export default function WeeklyCalendar({
                           <div className="agenda-item-main">
                             <strong>{formatTime(booking.startDateTime)} - {formatTime(booking.endDateTime)}</strong>
                             {booking.user === currentUser && (
-                              <button
-                                type="button"
-                                className="small-delete-btn"
-                                onClick={() => {
-                                  const confirmed = window.confirm('Delete this booking?')
-                                  if (confirmed) {
-                                    onDeleteBooking(booking.id)
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
+                              <div className="agenda-item-actions">
+                                {booking.status === 'active' && (
+                                  <button
+                                    type="button"
+                                    className="small-edit-btn"
+                                    onClick={() => onEditBooking(booking)}
+                                  >
+                                    Edit hours
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="small-delete-btn"
+                                  onClick={() => {
+                                    const confirmed = window.confirm('Delete this booking?')
+                                    if (confirmed) {
+                                      onDeleteBooking(booking.id)
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             )}
                           </div>
                           <p>{booking.user} - {labelForAssignedCars(booking.assignedCars)}</p>
@@ -507,20 +520,35 @@ export default function WeeklyCalendar({
                         </p>
                       )}
                       {booking.user === currentUser && (
-                        <button
-                          type="button"
-                          className="delete-event-btn"
-                          aria-label={`Delete booking ${booking.title?.trim() || booking.user}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            const confirmed = window.confirm('Delete this booking?')
-                            if (confirmed) {
-                              onDeleteBooking(booking.id)
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
+                        <>
+                          {booking.status === 'active' && (
+                            <button
+                              type="button"
+                              className="edit-event-btn"
+                              aria-label={`Edit booking ${booking.title?.trim() || booking.user}`}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                onEditBooking(booking)
+                              }}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="delete-event-btn"
+                            aria-label={`Delete booking ${booking.title?.trim() || booking.user}`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              const confirmed = window.confirm('Delete this booking?')
+                              if (confirmed) {
+                                onDeleteBooking(booking.id)
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </>
                       )}
                       <div className="event-tags">
                         {booking.isUrgent && <span className="tag urgent">Urgent</span>}
