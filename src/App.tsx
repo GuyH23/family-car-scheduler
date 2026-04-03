@@ -4,6 +4,7 @@ import BookingForm from './components/BookingForm'
 import ConfirmModal from './components/ConfirmModal'
 import EditBookingTimeModal from './components/EditBookingTimeModal'
 import MyBookings from './components/MyBookings'
+import RecurringDeleteModal from './components/RecurringDeleteModal'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
 import UrgentOverrideSelectionModal from './components/UrgentOverrideSelectionModal'
 import ViewShell from './components/ViewShell'
@@ -16,6 +17,7 @@ import {
   formatDateTime,
   formatTime,
   getConflicts,
+  getWeekStart,
   isValidDateRange,
   labelForAssignedCars,
   preferredCarForUser,
@@ -30,7 +32,7 @@ import {
   syncCalendarBacklog,
   type UrgentConflictCandidate,
   updateBookingById,
-  updateBookingTimeRangeById,
+  updateBookingDetailsById,
 } from './services/bookingsService'
 import type { AttemptBookingInput } from './services/bookingsService'
 import './App.css'
@@ -40,7 +42,15 @@ const THEME_KEY = 'carScheduler.theme.v1'
 
 type AppView = 'booking' | 'calendar' | 'myBookings'
 type ThemeName = 'blue' | 'pink'
-type BookingFormField = 'title' | 'requestedCarOption' | 'bookingDate' | 'startTime' | 'endTime' | 'isUrgent'
+type BookingFormField =
+  | 'title'
+  | 'requestedCarOption'
+  | 'bookingDate'
+  | 'startTime'
+  | 'endTime'
+  | 'isUrgent'
+  | 'isRecurring'
+  | 'recurringWeekdays'
 type OverrideNotifyPayload = {
   affectedName: FamilyMember
   message: string
@@ -60,9 +70,15 @@ type PendingProximityConfirmation =
     action: 'edit'
     message: string
     bookingId: string
+    title: string
     startDateTime: string
     endDateTime: string
   }
+type PendingRecurringDeleteConfirmation = {
+  bookingId: string
+  relatedBookingIds: string[]
+  weekLabel: string
+}
 
 const PROXIMITY_WARNING_MS = 30 * 60 * 1000
 
@@ -118,6 +134,18 @@ function resolveAssignedCarsForRequest(
 
 function hasCarIntersection(a: CarId[], b: CarId[]): boolean {
   return a.some((car) => b.includes(car))
+}
+
+function weekKeyFromIso(dateTime: string): string {
+  const weekStart = getWeekStart(new Date(dateTime))
+  const year = weekStart.getFullYear()
+  const month = String(weekStart.getMonth() + 1).padStart(2, '0')
+  const day = String(weekStart.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function timeOfDayFromIso(dateTime: string): string {
+  return splitDateTimeValue(dateTime).time
 }
 
 function getProximityWarningMessage(
@@ -203,6 +231,7 @@ function App() {
   const [overrideNotifyPayload, setOverrideNotifyPayload] = useState<OverrideNotifyPayload | null>(null)
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
   const [pendingProximityConfirmation, setPendingProximityConfirmation] = useState<PendingProximityConfirmation | null>(null)
+  const [pendingRecurringDelete, setPendingRecurringDelete] = useState<PendingRecurringDeleteConfirmation | null>(null)
   const [isUserSelectionModalOpen, setIsUserSelectionModalOpen] = useState(false)
   const [hasLoadedUserPreference, setHasLoadedUserPreference] = useState(false)
 
@@ -220,6 +249,8 @@ function App() {
   const [bookingDate, setBookingDate] = useState(() => splitDateTimeValue(initialStart).date)
   const [startTime, setStartTime] = useState(() => splitDateTimeValue(initialStart).time)
   const [endTime, setEndTime] = useState(() => splitDateTimeValue(initialEnd).time)
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringWeekdays, setRecurringWeekdays] = useState<number[]>([])
 
   const refreshBookings = async (withLoader = false) => {
     if (withLoader) {
@@ -331,7 +362,8 @@ function App() {
     [hasValidRange, redConflicts],
   )
 
-  const canSubmit = hasValidRange && !isSubmittingBooking
+  const hasRecurringSelection = !isRecurring || recurringWeekdays.length > 0
+  const canSubmit = hasValidRange && hasRecurringSelection && !isSubmittingBooking
   const noCarAvailable = hasValidRange && selectedRequestedCarOption === 'noPreference' && assignedCars === null
 
   const pendingOverrideNotification = useMemo(
@@ -368,6 +400,29 @@ function App() {
       return buildUrgentConflictCandidates([...whiteConflicts, ...redConflicts])
     }
     return buildUrgentConflictCandidates(conflicts)
+  }
+
+  const getRecurringDatesInSelectedWeek = (): string[] => {
+    if (!isRecurring || recurringWeekdays.length === 0 || !bookingDate) {
+      return [bookingDate]
+    }
+
+    const anchor = new Date(`${bookingDate}T00:00:00`)
+    if (Number.isNaN(anchor.getTime())) {
+      return [bookingDate]
+    }
+
+    const weekStart = getWeekStart(anchor)
+    const selected = [...new Set(recurringWeekdays)].sort((a, b) => a - b)
+
+    return selected.map((weekday) => {
+      const date = new Date(weekStart)
+      date.setDate(weekStart.getDate() + weekday)
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    })
   }
 
   const runCreateBooking = async (skipProximityCheck: boolean) => {
@@ -472,18 +527,221 @@ function App() {
     }
   }
 
+  const runCreateRecurringBookings = async () => {
+    const targetDates = getRecurringDatesInSelectedWeek().filter(Boolean)
+    if (targetDates.length <= 1) {
+      await runCreateBooking(false)
+      return
+    }
+
+    if (recurringWeekdays.length === 0) {
+      setNotice({ type: 'error', message: 'Select at least one weekday for recurring booking.' })
+      return
+    }
+
+    if (isSubmittingBooking) {
+      return
+    }
+
+    setIsSubmittingBooking(true)
+    setNotice(null)
+
+    let createdCount = 0
+    const skipped: string[] = []
+
+    try {
+      for (const date of targetDates) {
+        const start = combineDateAndTime(date, startTime)
+        const end = combineDateAndTime(date, endTime)
+
+        if (!isValidDateRange(start, end)) {
+          skipped.push(`${date}: invalid time range`)
+          continue
+        }
+
+        const assignedForDate = resolveAssignedCarsForRequest(
+          bookings,
+          selectedRequestedCarOption,
+          selectedUser,
+          start,
+          end,
+          canUseUrgentVeto,
+        )
+
+        if (!assignedForDate) {
+          skipped.push(`${date}: no available car`)
+          continue
+        }
+
+        const proximityMessage = getProximityWarningMessage(bookings, assignedForDate, start, end)
+        if (proximityMessage) {
+          const confirmCloseBooking = window.confirm(
+            `${date}: ${proximityMessage.replace(' Continue anyway?', '')}\n\nContinue for this date?`,
+          )
+          if (!confirmCloseBooking) {
+            skipped.push(`${date}: skipped by user (close to another booking)`)
+            continue
+          }
+        }
+
+        const result = await attemptBooking({
+          bookingId: crypto.randomUUID(),
+          title: title.trim(),
+          userName: selectedUser,
+          requestedCarOption: selectedRequestedCarOption,
+          startDateTime: start,
+          endDateTime: end,
+          isUrgent: canUseUrgentVeto,
+          note: '',
+          confirmUrgentOverride: false,
+        })
+
+        if (result.decision === 'created' || result.decision === 'created_with_override') {
+          createdCount += 1
+          continue
+        }
+
+        if (result.decision === 'needs_both_cars_decision' || result.decision === 'needs_urgent_confirmation') {
+          skipped.push(`${date}: needs manual confirmation (book this one separately)`)
+          continue
+        }
+
+        skipped.push(`${date}: ${result.message}`)
+      }
+
+      await refreshBookings()
+
+      if (createdCount > 0 && skipped.length === 0) {
+        setTitle('')
+        setSelectedRequestedCarOption('noPreference')
+        setIsRecurring(false)
+        setRecurringWeekdays([])
+        setNotice({ type: 'success', message: `Created ${createdCount} recurring booking(s).` })
+        return
+      }
+
+      if (createdCount > 0 && skipped.length > 0) {
+        setNotice({
+          type: 'warning',
+          message: `Created ${createdCount} recurring booking(s). Skipped ${skipped.length}: ${skipped.join(' | ')}`,
+        })
+        return
+      }
+
+      setNotice({
+        type: 'error',
+        message: `No recurring bookings were created. ${skipped.join(' | ') || 'Please review selected days and time range.'}`,
+      })
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not save recurring bookings. Please try again.')
+      setNotice({ type: 'error', message })
+    } finally {
+      setIsSubmittingBooking(false)
+    }
+  }
+
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    await runCreateBooking(false)
+    await (isRecurring ? runCreateRecurringBookings() : runCreateBooking(false))
+  }
+
+  const findRecurringWeekRelatedBookings = (targetBooking: Booking): Booking[] => {
+    const targetTitle = (targetBooking.title ?? '').trim()
+    const targetWeekKey = weekKeyFromIso(targetBooking.startDateTime)
+    const targetStartTime = timeOfDayFromIso(targetBooking.startDateTime)
+    const targetEndTime = timeOfDayFromIso(targetBooking.endDateTime)
+
+    return bookings.filter((booking) => {
+      if (booking.id === targetBooking.id) {
+        return false
+      }
+      if (booking.user !== targetBooking.user) {
+        return false
+      }
+      if (booking.status !== targetBooking.status) {
+        return false
+      }
+      if (booking.requestedCarOption !== targetBooking.requestedCarOption) {
+        return false
+      }
+      if (booking.isUrgent !== targetBooking.isUrgent) {
+        return false
+      }
+      if ((booking.title ?? '').trim() !== targetTitle) {
+        return false
+      }
+      if (weekKeyFromIso(booking.startDateTime) !== targetWeekKey) {
+        return false
+      }
+      return timeOfDayFromIso(booking.startDateTime) === targetStartTime &&
+        timeOfDayFromIso(booking.endDateTime) === targetEndTime
+    })
+  }
+
+  const deleteBookingsByIds = async (ids: string[]) => {
+    for (const id of ids) {
+      await deleteBookingById(id)
+    }
   }
 
   const handleDeleteBooking = async (bookingId: string) => {
+    const targetBooking = bookings.find((booking) => booking.id === bookingId)
+    if (!targetBooking) {
+      setNotice({ type: 'error', message: 'Could not find that booking anymore. Please refresh and try again.' })
+      return
+    }
+
+    const relatedInWeek = findRecurringWeekRelatedBookings(targetBooking)
+    if (relatedInWeek.length > 0) {
+      const weekStart = getWeekStart(new Date(targetBooking.startDateTime))
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      const weekLabel = `${weekStart.getDate()}.${weekStart.getMonth() + 1} - ${weekEnd.getDate()}.${weekEnd.getMonth() + 1}`
+
+      setPendingRecurringDelete({
+        bookingId,
+        relatedBookingIds: relatedInWeek.map((booking) => booking.id),
+        weekLabel,
+      })
+      return
+    }
+
     try {
       await deleteBookingById(bookingId)
       await refreshBookings()
       setNotice({ type: 'success', message: 'Booking deleted successfully.' })
     } catch {
       setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
+    }
+  }
+
+  const handleDeleteOnlyThisRecurringBooking = async () => {
+    if (!pendingRecurringDelete) {
+      return
+    }
+    const bookingId = pendingRecurringDelete.bookingId
+    setPendingRecurringDelete(null)
+    try {
+      await deleteBookingById(bookingId)
+      await refreshBookings()
+      setNotice({ type: 'success', message: 'Booking deleted successfully.' })
+    } catch {
+      setNotice({ type: 'error', message: 'Could not delete booking. Please try again.' })
+    }
+  }
+
+  const handleDeleteWholeRecurringWeek = async () => {
+    if (!pendingRecurringDelete) {
+      return
+    }
+    const idsToDelete = [pendingRecurringDelete.bookingId, ...pendingRecurringDelete.relatedBookingIds]
+    setPendingRecurringDelete(null)
+    try {
+      await deleteBookingsByIds(idsToDelete)
+      await refreshBookings()
+      setNotice({ type: 'success', message: `Deleted ${idsToDelete.length} bookings from this recurring week.` })
+    } catch {
+      setNotice({ type: 'error', message: 'Could not delete all recurring bookings. Please try again.' })
     }
   }
 
@@ -494,6 +752,7 @@ function App() {
 
   const runEditBooking = async (
     bookingId: string,
+    proposedTitle: string,
     proposedStartDateTime: string,
     proposedEndDateTime: string,
     skipProximityCheck: boolean,
@@ -545,6 +804,7 @@ function App() {
           action: 'edit',
           message: warningMessage,
           bookingId,
+          title: proposedTitle,
           startDateTime: normalizedStart,
           endDateTime: normalizedEnd,
         })
@@ -555,25 +815,25 @@ function App() {
     setIsSubmittingBooking(true)
     setNotice(null)
     try {
-      await updateBookingTimeRangeById(bookingId, normalizedStart, normalizedEnd)
+      await updateBookingDetailsById(bookingId, proposedTitle.trim(), normalizedStart, normalizedEnd)
       await refreshBookings()
       setEditingBooking(null)
-      setNotice({ type: 'success', message: 'Booking hours updated successfully.' })
+      setNotice({ type: 'success', message: 'Booking updated successfully.' })
     } catch (error) {
       setNotice({
         type: 'error',
-        message: getErrorMessage(error, 'Could not update booking hours. Please try again.'),
+        message: getErrorMessage(error, 'Could not update booking. Please try again.'),
       })
     } finally {
       setIsSubmittingBooking(false)
     }
   }
 
-  const handleSaveBookingEdit = async (proposedStartDateTime: string, proposedEndDateTime: string) => {
+  const handleSaveBookingEdit = async (proposedTitle: string, proposedStartDateTime: string, proposedEndDateTime: string) => {
     if (!editingBooking) {
       return
     }
-    await runEditBooking(editingBooking.id, proposedStartDateTime, proposedEndDateTime, false)
+    await runEditBooking(editingBooking.id, proposedTitle, proposedStartDateTime, proposedEndDateTime, false)
   }
 
   const handleCancelBookingEdit = () => {
@@ -712,7 +972,7 @@ function App() {
       return
     }
 
-    await runEditBooking(action.bookingId, action.startDateTime, action.endDateTime, true)
+    await runEditBooking(action.bookingId, action.title, action.startDateTime, action.endDateTime, true)
   }
 
   const handleCancelProximity = () => {
@@ -739,6 +999,8 @@ function App() {
         startTime: string
         endTime: string
         isUrgent: boolean
+        isRecurring: boolean
+        recurringWeekdays: number[]
       }
     )[K],
   ) => {
@@ -767,6 +1029,23 @@ function App() {
     }
     if (key === 'isUrgent') {
       setIsUrgent(value as boolean)
+      return
+    }
+    if (key === 'isRecurring') {
+      const nextIsRecurring = value as boolean
+      setIsRecurring(nextIsRecurring)
+      if (nextIsRecurring) {
+        const selectedDate = new Date(`${bookingDate}T00:00:00`)
+        if (!Number.isNaN(selectedDate.getTime())) {
+          setRecurringWeekdays([selectedDate.getDay()])
+        }
+      } else {
+        setRecurringWeekdays([])
+      }
+      return
+    }
+    if (key === 'recurringWeekdays') {
+      setRecurringWeekdays(value as number[])
       return
     }
   }
@@ -874,6 +1153,8 @@ function App() {
                 startTime,
                 endTime,
                 isUrgent,
+                isRecurring,
+                recurringWeekdays,
               }}
               currentUser={selectedUser}
               conflicts={conflicts}
@@ -940,6 +1221,15 @@ function App() {
         secondaryLabel="Cancel"
         onPrimary={handleUseBothCarsForDuplicate}
         onSecondary={handleCancelDuplicateMerge}
+      />
+
+      <RecurringDeleteModal
+        isOpen={pendingRecurringDelete !== null}
+        weekLabel={pendingRecurringDelete?.weekLabel ?? ''}
+        bookingCount={(pendingRecurringDelete?.relatedBookingIds.length ?? 0) + (pendingRecurringDelete ? 1 : 0)}
+        onDeleteOnlyThis={handleDeleteOnlyThisRecurringBooking}
+        onDeleteWholeWeek={handleDeleteWholeRecurringWeek}
+        onCancel={() => setPendingRecurringDelete(null)}
       />
 
       <UrgentOverrideSelectionModal

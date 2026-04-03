@@ -6,7 +6,7 @@ type EditBookingTimeModalProps = {
   booking: Booking | null
   isOpen: boolean
   onCancel: () => void
-  onSave: (startDateTime: string, endDateTime: string) => void
+  onSave: (title: string, startDateTime: string, endDateTime: string) => void
 }
 
 export default function EditBookingTimeModal({
@@ -15,6 +15,7 @@ export default function EditBookingTimeModal({
   onCancel,
   onSave,
 }: EditBookingTimeModalProps) {
+  const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
@@ -27,6 +28,7 @@ export default function EditBookingTimeModal({
     const startParts = splitDateTimeValue(booking.startDateTime)
     const endParts = splitDateTimeValue(booking.endDateTime)
 
+    setTitle(booking.title ?? '')
     setDate(startParts.date)
     setStartTime(startParts.time)
     setEndTime(endParts.time)
@@ -39,9 +41,13 @@ export default function EditBookingTimeModal({
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Edit booking time range">
       <div className="modal-card">
-        <h3>Edit booking hours</h3>
-        <p>Adjust start/end times for this booking.</p>
+        <h3>Edit booking</h3>
+        <p>Update title and time range for this booking.</p>
         <div className="edit-booking-modal-form">
+          <label>
+            Title
+            <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
+          </label>
           <label>
             Date
             <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -62,7 +68,7 @@ export default function EditBookingTimeModal({
           <button
             type="button"
             className="modal-primary"
-            onClick={() => onSave(`${date}T${startTime}:00`, `${date}T${endTime}:00`)}
+            onClick={() => onSave(title, `${date}T${startTime}:00`, `${date}T${endTime}:00`)}
             disabled={!date || !startTime || !endTime}
           >
             Save

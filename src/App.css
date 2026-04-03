@@ -263,6 +263,16 @@
   justify-content: flex-start;
 }
 
+.recurring-toggle-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.recurring-days-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .all-day-toggle {
   width: 100%;
 }
@@ -313,6 +323,51 @@
   width: 16px;
   height: 16px;
   margin: 0;
+}
+
+.recurring-toggle {
+  margin-top: 2px;
+}
+
+.recurring-days {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.recurring-day {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.recurring-day input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.recurring-quick-select {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px 10px;
+  min-height: 36px;
+}
+
+.recurring-quick-select:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
 }
 
 .availability {
@@ -1235,7 +1290,7 @@
   .booking-date-time-row {
     position: relative;
     display: block;
-    min-height: 141px;
+    min-height: 187px;
     width: 100%;
     margin-top: 2px;
   }
@@ -1290,6 +1345,15 @@
 
   .all-day-button-row {
     position: absolute;
+    top: 147px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .recurring-toggle-row {
+    position: absolute;
     top: 111px;
     left: 0;
     right: 0;
@@ -1297,8 +1361,39 @@
     justify-content: flex-start;
   }
 
-  .booking-form > .urgent-toggle {
-    margin-top: -5px;
+  .recurring-days-row {
+    position: absolute;
+    top: 131px;
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
+  .booking-date-time-row.has-recurring-days {
+    min-height: 262px;
+  }
+
+  .booking-date-time-row.has-recurring-days .all-day-button-row {
+    top: 232px;
+  }
+
+  .recurring-days {
+    gap: 4px 6px;
+    padding: 6px;
+  }
+
+  .recurring-day {
+    font-size: 0.74rem;
+  }
+
+  .recurring-quick-select {
+    font-size: 0.72rem;
+    min-height: 28px;
+    padding: 4px 6px;
+  }
+
+  .booking-form > .urgent-toggle:not(.recurring-toggle) {
+    margin-top: -16px;
   }
 
   .booking-form input[type='date'],

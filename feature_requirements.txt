@@ -4,3 +4,5 @@
 - availability snapshot wording: if availability starts at 00:00, show "available until <time>" instead of "available from 00:00 until <time>" (done)
 - Google Calendar integration (shared "Car Schedule" mirror sync: create/update/delete via backend-side sync layer, Supabase remains source of truth, no invites or per-user login) (done)
 - edit existing bookings to longer/shorter hour ranges; allow unless overlapping another booking; show warning popup when start/end is within 30 minutes of nearby bookings (for both new and edited bookings) (done)
+- recurring booking option: choose weekdays in a selected week with same hours, plus quick presets (done)
+- recurring deletion popup: delete only this booking or whole recurring week (done)

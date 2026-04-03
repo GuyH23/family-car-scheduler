@@ -59,7 +59,7 @@ export default function MyBookings({ currentUser, bookings, onDeleteBooking, onE
                               className="small-edit-btn"
                               onClick={() => onEditBooking(booking)}
                             >
-                              Edit hours
+                              Edit
                             </button>
                           )}
                           <button

@@ -354,10 +354,16 @@ export async function updateBookingsByIds(ids: string[], patch: BookingPatch): P
   }
 }
 
-export async function updateBookingTimeRangeById(id: string, startDateTime: string, endDateTime: string): Promise<void> {
+export async function updateBookingDetailsById(
+  id: string,
+  title: string,
+  startDateTime: string,
+  endDateTime: string,
+): Promise<void> {
   const { error } = await supabase
     .from('bookings')
     .update({
+      title: title || null,
       start_datetime: startDateTime,
       end_datetime: endDateTime,
     })

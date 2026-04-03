@@ -416,7 +416,7 @@ export default function WeeklyCalendar({
                                     className="small-edit-btn"
                                     onClick={() => onEditBooking(booking)}
                                   >
-                                    Edit hours
+                                    Edit
                                   </button>
                                 )}
                                 <button

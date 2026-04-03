@@ -10,7 +10,18 @@ type BookingFormValues = {
   startTime: string
   endTime: string
   isUrgent: boolean
+  isRecurring: boolean
+  recurringWeekdays: number[]
 }
+
+const WEEKDAY_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+]
 
 type BookingFormProps = {
   values: BookingFormValues
@@ -101,6 +112,61 @@ export default function BookingForm({
   const whiteOwner = formatConflictOwner(whiteConflict)
   const redOwner = formatConflictOwner(redConflict)
   const showUrgentOverrideSummary = isValidRange && values.isUrgent && ownConflictCount === 0 && otherConflictCount > 0
+  const toggleRecurringWeekday = (weekday: number) => {
+    const next = values.recurringWeekdays.includes(weekday)
+      ? values.recurringWeekdays.filter((day) => day !== weekday)
+      : [...values.recurringWeekdays, weekday].sort((a, b) => a - b)
+    onFieldChange('recurringWeekdays', next)
+  }
+  const selectWorkWeek = () => {
+    const workWeekDays = [0, 1, 2, 3, 4]
+    const hasAllWorkDaysSelected = workWeekDays.every((day) => values.recurringWeekdays.includes(day))
+
+    if (hasAllWorkDaysSelected) {
+      onFieldChange(
+        'recurringWeekdays',
+        values.recurringWeekdays.filter((day) => !workWeekDays.includes(day)),
+      )
+      return
+    }
+
+    onFieldChange(
+      'recurringWeekdays',
+      [...new Set([...values.recurringWeekdays, ...workWeekDays])].sort((a, b) => a - b),
+    )
+  }
+  const selectRuthSchedule = () => {
+    const ruthDays = [0, 1, 2, 4, 5]
+    const hasAllRuthDaysSelected = ruthDays.every((day) => values.recurringWeekdays.includes(day))
+
+    if (hasAllRuthDaysSelected) {
+      onFieldChange(
+        'recurringWeekdays',
+        values.recurringWeekdays.filter((day) => !ruthDays.includes(day)),
+      )
+      return
+    }
+
+    onFieldChange(
+      'recurringWeekdays',
+      [...new Set([...values.recurringWeekdays, ...ruthDays])].sort((a, b) => a - b),
+    )
+  }
+  const recurringLabelWithDate = (weekday: number): string => {
+    const baseLabel = WEEKDAY_OPTIONS.find((item) => item.value === weekday)?.label ?? ''
+    const selectedDate = new Date(`${values.bookingDate}T00:00:00`)
+    if (Number.isNaN(selectedDate.getTime())) {
+      return baseLabel
+    }
+
+    const weekStart = new Date(selectedDate)
+    weekStart.setHours(0, 0, 0, 0)
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+
+    const weekdayDate = new Date(weekStart)
+    weekdayDate.setDate(weekStart.getDate() + weekday)
+    return `${baseLabel} ${weekdayDate.getDate()}.${weekdayDate.getMonth() + 1}`
+  }
 
   return (
     <section className="panel">
@@ -136,7 +202,7 @@ export default function BookingForm({
 
         <label>
           Date & time range
-          <span className="booking-date-time-row">
+          <span className={`booking-date-time-row ${values.isRecurring ? 'has-recurring-days' : ''}`}>
             <span className="booking-date-row">
               <input
                 className="booking-date-input"
@@ -163,6 +229,38 @@ export default function BookingForm({
                 />
               </span>
             </span>
+            <span className="recurring-toggle-row">
+              <label className="urgent-toggle recurring-toggle">
+                <input
+                  type="checkbox"
+                  checked={values.isRecurring}
+                  onChange={(event) => onFieldChange('isRecurring', event.target.checked)}
+                />
+                Recurring in this week
+              </label>
+            </span>
+            {values.isRecurring && (
+              <span className="recurring-days-row">
+                <span className="recurring-days">
+                  {WEEKDAY_OPTIONS.map((option) => (
+                    <label key={option.value} className="recurring-day">
+                      <input
+                        type="checkbox"
+                        checked={values.recurringWeekdays.includes(option.value)}
+                        onChange={() => toggleRecurringWeekday(option.value)}
+                      />
+                      {recurringLabelWithDate(option.value)}
+                    </label>
+                  ))}
+                  <button type="button" className="recurring-quick-select" onClick={selectWorkWeek}>
+                    Sun-Thu
+                  </button>
+                  <button type="button" className="recurring-quick-select" onClick={selectRuthSchedule}>
+                    Ruth
+                  </button>
+                </span>
+              </span>
+            )}
             <span className="all-day-button-row">
               <label className="urgent-toggle all-day-toggle">
                 <input
@@ -246,7 +344,7 @@ export default function BookingForm({
         </div>
 
         <button type="submit" disabled={!canSubmit}>
-          Save booking
+          {values.isRecurring ? 'Save recurring bookings' : 'Save booking'}
         </button>
       </form>
     </section>
