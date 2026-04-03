@@ -34,6 +34,7 @@ type CarSwitchRequestRow = {
   requested_booking_id: string
   requested_current_car: CarId
   requested_target_car: CarId
+  interim_booking_id?: string | null
   status: CarSwitchRequestStatus
   expires_at: string
   created_at: string
@@ -75,6 +76,7 @@ function toCarSwitchRequest(row: CarSwitchRequestRow): CarSwitchRequest {
     requestedBookingId: row.requested_booking_id,
     requestedCurrentCar: row.requested_current_car,
     requestedTargetCar: row.requested_target_car,
+    interimBookingId: row.interim_booking_id ?? undefined,
     status: row.status,
     expiresAt: row.expires_at,
     createdAt: row.created_at,
@@ -545,6 +547,7 @@ export type CreateCarSwitchRequestInput = {
   requestedBookingId: string
   requestedCurrentCar: CarId
   requestedTargetCar: CarId
+  interimBookingId?: string
   expiresAt: string
 }
 
@@ -574,6 +577,7 @@ export async function createCarSwitchRequest(input: CreateCarSwitchRequestInput)
     requested_booking_id: input.requestedBookingId,
     requested_current_car: input.requestedCurrentCar,
     requested_target_car: input.requestedTargetCar,
+    interim_booking_id: input.interimBookingId ?? null,
     status: 'pending' as CarSwitchRequestStatus,
     expires_at: input.expiresAt,
   }
@@ -615,25 +619,40 @@ export async function expireElapsedCarSwitchRequests(nowIso: string): Promise<vo
 }
 
 export async function approveAndApplyCarSwitchRequest(request: CarSwitchRequest): Promise<void> {
-  if (request.status !== 'pending') {
+  const { data: latestRequestRow, error: latestRequestError } = await supabase
+    .from('car_switch_requests')
+    .select('*')
+    .eq('id', request.id)
+    .maybeSingle()
+
+  if (latestRequestError) {
+    throw latestRequestError
+  }
+
+  if (!latestRequestRow) {
+    throw new Error('Request does not exist anymore.')
+  }
+
+  const latestRequest = toCarSwitchRequest(latestRequestRow as CarSwitchRequestRow)
+  if (latestRequest.status !== 'pending') {
     throw new Error('Request is no longer pending.')
   }
-  if (new Date().toISOString() >= request.expiresAt) {
-    await updateCarSwitchRequestStatus(request.id, 'expired')
+  if (new Date().toISOString() >= latestRequest.expiresAt) {
+    await updateCarSwitchRequestStatus(latestRequest.id, 'expired')
     throw new Error('Request has expired.')
   }
 
-  const requestedBooking = await getBookingById(request.requestedBookingId)
+  const requestedBooking = await getBookingById(latestRequest.requestedBookingId)
   if (!requestedBooking || requestedBooking.status !== 'active') {
-    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
     throw new Error('Requested booking is not available anymore.')
   }
-  if (requestedBooking.user !== request.requestedUserName) {
-    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+  if (requestedBooking.user !== latestRequest.requestedUserName) {
+    await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
     throw new Error('Requested booking owner changed.')
   }
-  if (requestedBooking.assignedCars.length !== 1 || requestedBooking.assignedCars[0] !== request.requestedCurrentCar) {
-    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+  if (requestedBooking.assignedCars.length !== 1 || requestedBooking.assignedCars[0] !== latestRequest.requestedCurrentCar) {
+    await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
     throw new Error('Requested booking car no longer matches the request.')
   }
 
@@ -641,28 +660,41 @@ export async function approveAndApplyCarSwitchRequest(request: CarSwitchRequest)
     .from('bookings')
     .select('id')
     .eq('status', 'active')
-    .neq('id', request.requestedBookingId)
+    .neq('id', latestRequest.requestedBookingId)
     .lt('start_datetime', requestedBooking.endDateTime)
     .gt('end_datetime', requestedBooking.startDateTime)
-    .contains('assigned_cars', [request.requestedTargetCar])
+    .contains('assigned_cars', [latestRequest.requestedTargetCar])
 
   if (blockingError) {
     throw blockingError
   }
   if ((targetCarBlockingRows as Array<{ id: string }>).length > 0) {
-    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
     throw new Error('Target car became unavailable for the requested user.')
   }
 
   const originalRequestedOption = requestedBooking.requestedCarOption
+  let interimBackupBooking: Booking | null = null
+
+  if (latestRequest.interimBookingId) {
+    const interim = await getBookingById(latestRequest.interimBookingId)
+    if (!interim || interim.status !== 'active' || interim.user !== latestRequest.requesterName) {
+      await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
+      throw new Error('Requester removed the meantime booking. Switch request was cancelled.')
+    }
+    if (interim && interim.status === 'active' && interim.user === latestRequest.requesterName) {
+      interimBackupBooking = interim
+      await deleteBookingById(interim.id)
+    }
+  }
 
   const { error: updateRequestedBookingError } = await supabase
     .from('bookings')
     .update({
-      requested_car_option: request.requestedTargetCar,
-      assigned_cars: [request.requestedTargetCar],
+      requested_car_option: latestRequest.requestedTargetCar,
+      assigned_cars: [latestRequest.requestedTargetCar],
     })
-    .eq('id', request.requestedBookingId)
+    .eq('id', latestRequest.requestedBookingId)
 
   if (updateRequestedBookingError) {
     throw updateRequestedBookingError
@@ -670,12 +702,12 @@ export async function approveAndApplyCarSwitchRequest(request: CarSwitchRequest)
 
   try {
     const bookingAttempt = await attemptBooking({
-      bookingId: request.requesterBookingId,
-      title: request.requesterTitle ?? '',
-      userName: request.requesterName,
-      requestedCarOption: request.requesterRequestedCarOption,
-      startDateTime: request.requesterStartDateTime,
-      endDateTime: request.requesterEndDateTime,
+      bookingId: latestRequest.requesterBookingId,
+      title: latestRequest.requesterTitle ?? '',
+      userName: latestRequest.requesterName,
+      requestedCarOption: latestRequest.requesterRequestedCarOption,
+      startDateTime: latestRequest.requesterStartDateTime,
+      endDateTime: latestRequest.requesterEndDateTime,
       isUrgent: false,
       note: '',
       confirmUrgentOverride: false,
@@ -685,19 +717,24 @@ export async function approveAndApplyCarSwitchRequest(request: CarSwitchRequest)
       throw new Error(bookingAttempt.message || 'Could not apply switch request.')
     }
 
-    await updateCarSwitchRequestStatus(request.id, 'applied')
-    await syncBookingIdsToCalendar([request.requestedBookingId, request.requesterBookingId])
+    await updateCarSwitchRequestStatus(latestRequest.id, 'applied')
+    await syncBookingIdsToCalendar([latestRequest.requestedBookingId, latestRequest.requesterBookingId])
   } catch (error) {
     // Roll back requested booking if requester booking could not be created.
     await supabase
       .from('bookings')
       .update({
         requested_car_option: originalRequestedOption,
-        assigned_cars: [request.requestedCurrentCar],
+        assigned_cars: [latestRequest.requestedCurrentCar],
       })
-      .eq('id', request.requestedBookingId)
+      .eq('id', latestRequest.requestedBookingId)
 
-    await updateCarSwitchRequestStatus(request.id, 'cancelled')
+    if (interimBackupBooking) {
+      await createBooking(interimBackupBooking)
+      await syncBookingIdsToCalendar([interimBackupBooking.id])
+    }
+
+    await updateCarSwitchRequestStatus(latestRequest.id, 'cancelled')
     throw error
   }
 }

@@ -37,6 +37,7 @@ export type CarSwitchRequest = {
   requestedBookingId: string
   requestedCurrentCar: CarId
   requestedTargetCar: CarId
+  interimBookingId?: string
   status: CarSwitchRequestStatus
   expiresAt: string
   createdAt: string

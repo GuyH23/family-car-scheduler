@@ -7,6 +7,7 @@ import EditBookingTimeModal from './components/EditBookingTimeModal'
 import MyBookings from './components/MyBookings'
 import RecurringDeleteModal from './components/RecurringDeleteModal'
 import SwitchRequestMessageModal from './components/SwitchRequestMessageModal'
+import SwitchInterimSelectionModal from './components/SwitchInterimSelectionModal'
 import UrgentOverrideModal from './components/UrgentOverrideModal'
 import UrgentOverrideSelectionModal from './components/UrgentOverrideSelectionModal'
 import ViewShell from './components/ViewShell'
@@ -110,6 +111,17 @@ type CarSwitchCandidate = {
   requesterEndDateTime: string
   expiresAt: string
   whatsappMessage: string
+}
+type InterimOption = {
+  id: string
+  startDateTime: string
+  endDateTime: string
+  requestedCarOption: RequestedCarOption
+  assignedCars: CarId[]
+}
+type PendingSwitchInterimSelection = {
+  candidate: CarSwitchCandidate
+  options: InterimOption[]
 }
 type PendingAutoResolution =
   | {
@@ -375,6 +387,7 @@ function App() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
   const [pendingProximityConfirmation, setPendingProximityConfirmation] = useState<PendingProximityConfirmation | null>(null)
   const [pendingAutoResolution, setPendingAutoResolution] = useState<PendingAutoResolution | null>(null)
+  const [pendingSwitchInterimSelection, setPendingSwitchInterimSelection] = useState<PendingSwitchInterimSelection | null>(null)
   const [carSwitchRequests, setCarSwitchRequests] = useState<CarSwitchRequest[]>([])
   const [pendingRecurringDelete, setPendingRecurringDelete] = useState<PendingRecurringDeleteConfirmation | null>(null)
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null)
@@ -1764,7 +1777,7 @@ function App() {
     setPendingAutoResolution(null)
   }
 
-  const handleRequestCarSwitch = async (candidate: CarSwitchCandidate) => {
+  const submitCarSwitchRequest = async (candidate: CarSwitchCandidate, interimOption?: InterimOption) => {
     const duplicatePending = carSwitchRequests.some((request) =>
       request.status === 'pending' &&
       request.requesterName === selectedUser &&
@@ -1779,6 +1792,28 @@ function App() {
 
     setIsSubmittingBooking(true)
     try {
+      let interimBookingId: string | undefined
+
+      if (interimOption) {
+        const interimAttemptInput: AttemptBookingInput = {
+          bookingId: generateUuid(),
+          title: title.trim(),
+          userName: selectedUser,
+          requestedCarOption: interimOption.requestedCarOption,
+          startDateTime: interimOption.startDateTime,
+          endDateTime: interimOption.endDateTime,
+          isUrgent: false,
+          note: '',
+          confirmUrgentOverride: false,
+        }
+
+        const interimResult = await attemptBooking(interimAttemptInput)
+        if (interimResult.decision !== 'created') {
+          throw new Error(`Could not reserve meantime booking: ${interimResult.message}`)
+        }
+        interimBookingId = interimAttemptInput.bookingId
+      }
+
       const payload: CreateCarSwitchRequestInput = {
         requesterName: selectedUser,
         requestedUserName: candidate.requestedUserName,
@@ -1790,6 +1825,7 @@ function App() {
         requestedBookingId: candidate.requestedBookingId,
         requestedCurrentCar: candidate.requestedCurrentCar,
         requestedTargetCar: candidate.requestedTargetCar,
+        interimBookingId,
         expiresAt: candidate.expiresAt,
       }
       await createCarSwitchRequest(payload)
@@ -1801,7 +1837,9 @@ function App() {
       })
       setNotice({
         type: 'success',
-        message: `Switch request sent to ${candidate.requestedUserName}. It will expire automatically if not approved in time.`,
+        message: interimBookingId
+          ? `Switch request sent to ${candidate.requestedUserName}. A meantime booking was reserved and will be removed automatically when switch is approved.`
+          : `Switch request sent to ${candidate.requestedUserName}. It will expire automatically if not approved in time.`,
       })
     } catch (error) {
       setNotice({
@@ -1811,6 +1849,40 @@ function App() {
     } finally {
       setIsSubmittingBooking(false)
     }
+  }
+
+  const handleRequestCarSwitch = async (candidate: CarSwitchCandidate) => {
+    if (pendingAutoResolution?.action === 'new' && pendingAutoResolution.readyNow.length > 0) {
+      const options: InterimOption[] = pendingAutoResolution.readyNow.map((option) => ({
+        id: option.id,
+        startDateTime: option.startDateTime,
+        endDateTime: option.endDateTime,
+        requestedCarOption: option.requestedCarOption,
+        assignedCars: option.assignedCars,
+      }))
+      setPendingSwitchInterimSelection({ candidate, options })
+      return
+    }
+
+    await submitCarSwitchRequest(candidate)
+  }
+
+  const handleSelectInterimOptionForSwitch = async (option: InterimOption) => {
+    if (!pendingSwitchInterimSelection) {
+      return
+    }
+    const candidate = pendingSwitchInterimSelection.candidate
+    setPendingSwitchInterimSelection(null)
+    await submitCarSwitchRequest(candidate, option)
+  }
+
+  const handleSkipInterimForSwitch = async () => {
+    if (!pendingSwitchInterimSelection) {
+      return
+    }
+    const candidate = pendingSwitchInterimSelection.candidate
+    setPendingSwitchInterimSelection(null)
+    await submitCarSwitchRequest(candidate)
   }
 
   const handleApproveCarSwitchRequest = async (request: CarSwitchRequest) => {
@@ -2190,6 +2262,14 @@ function App() {
         recipientName={switchMessagePayload?.recipientName ?? ''}
         message={switchMessagePayload?.message ?? ''}
         onClose={() => setSwitchMessagePayload(null)}
+      />
+
+      <SwitchInterimSelectionModal
+        isOpen={pendingSwitchInterimSelection !== null}
+        options={pendingSwitchInterimSelection?.options ?? []}
+        onSelectOption={handleSelectInterimOptionForSwitch}
+        onSkip={handleSkipInterimForSwitch}
+        onCancel={() => setPendingSwitchInterimSelection(null)}
       />
 
       <UserSelectionModal

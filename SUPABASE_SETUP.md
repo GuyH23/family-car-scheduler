@@ -555,6 +555,7 @@ create table if not exists public.car_switch_requests (
   requested_booking_id uuid not null,
   requested_current_car text not null check (requested_current_car in ('white', 'red')),
   requested_target_car text not null check (requested_target_car in ('white', 'red')),
+  interim_booking_id uuid,
   status text not null default 'pending' check (status in ('pending', 'declined', 'cancelled', 'expired', 'applied')),
   expires_at timestamptz not null,
   created_at timestamptz not null default now(),
@@ -592,6 +593,9 @@ on public.car_switch_requests
 for delete
 to anon
 using (true);
+
+alter table public.car_switch_requests
+  add column if not exists interim_booking_id uuid;
 ```
 
 > Note: This is intentionally open for a simple family shared app with no auth.
