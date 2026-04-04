@@ -90,7 +90,11 @@ export default function AutoResolutionModal({
                       </p>
                     )}
                   </div>
-                  <button type="button" className="modal-primary" onClick={() => onApply(option)}>
+                  <button
+                    type="button"
+                    className="modal-primary assistant-action-btn"
+                    onClick={() => onApply(option)}
+                  >
                     Apply
                   </button>
                 </li>
@@ -115,7 +119,11 @@ export default function AutoResolutionModal({
                       </p>
                     )}
                   </div>
-                  <button type="button" className="modal-primary" onClick={() => onApply(option)}>
+                  <button
+                    type="button"
+                    className="modal-primary assistant-action-btn"
+                    onClick={() => onApply(option)}
+                  >
                     Apply
                   </button>
                 </li>
@@ -137,7 +145,11 @@ export default function AutoResolutionModal({
                     </p>
                     <p>Expires at {formatTime(candidate.expiresAt)}.</p>
                   </div>
-                  <button type="button" className="modal-primary" onClick={() => onRequestSwitch(candidate)}>
+                  <button
+                    type="button"
+                    className="modal-primary assistant-action-btn assistant-action-btn--switch"
+                    onClick={() => onRequestSwitch(candidate)}
+                  >
                     Request switch
                   </button>
                 </li>

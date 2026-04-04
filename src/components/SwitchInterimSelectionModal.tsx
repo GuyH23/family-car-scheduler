@@ -54,7 +54,11 @@ export default function SwitchInterimSelectionModal({
                 <strong>{formatTime(option.startDateTime)} - {formatTime(option.endDateTime)}</strong>
                 <p>Car: {labelForCars(option.assignedCars)}</p>
               </div>
-              <button type="button" className="modal-primary" onClick={() => onSelectOption(option)}>
+              <button
+                type="button"
+                className="modal-primary assistant-action-btn assistant-action-btn--interim"
+                onClick={() => onSelectOption(option)}
+              >
                 Use this
               </button>
             </li>
@@ -64,7 +68,7 @@ export default function SwitchInterimSelectionModal({
           <button type="button" className="modal-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="modal-primary" onClick={onSkip}>
+          <button type="button" className="modal-primary assistant-action-btn assistant-action-btn--subtle" onClick={onSkip}>
             Continue without interim
           </button>
         </div>

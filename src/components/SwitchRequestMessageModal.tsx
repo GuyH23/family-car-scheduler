@@ -42,7 +42,7 @@ export default function SwitchRequestMessageModal({
           Copy and send this message to <strong>{recipientName}</strong>.
         </p>
 
-        <pre className="copy-message-box copy-message-box--ltr">{message}</pre>
+        <pre className="copy-message-box">{message}</pre>
 
         <div className="modal-actions">
           <button type="button" className="modal-secondary" onClick={onClose}>

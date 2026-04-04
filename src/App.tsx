@@ -682,7 +682,7 @@ function App() {
           continue
         }
 
-        const requesterDateLabel = new Date(params.requesterStartDateTime).toLocaleDateString(undefined, {
+        const requesterDateLabel = new Date(params.requesterStartDateTime).toLocaleDateString('he-IL', {
           weekday: 'short',
           month: 'short',
           day: 'numeric',
@@ -691,13 +691,15 @@ function App() {
         const formattedEnd = formatTime(params.requesterEndDateTime)
         const blockerStart = formatTime(blocker.startDateTime)
         const blockerEnd = formatTime(blocker.endDateTime)
+        const requestedCarLabel = requestedCar === 'white' ? 'הרכב הלבן' : 'הרכב האדום'
+        const targetCarLabel = targetCar === 'white' ? 'הרכב הלבן' : 'הרכב האדום'
         const whatsappMessage =
-          `Hi ${blocker.user},\n\n` +
-          `Can we do a quick car switch on ${requesterDateLabel}?\n` +
-          `- Your current booking: ${requestedCar} (${blockerStart}-${blockerEnd})\n` +
-          `- Requested switch: move to ${targetCar} (same time)\n` +
-          `- I need: ${requestedCar} (${formattedStart}-${formattedEnd})\n\n` +
-          `Thanks!`
+          `היי ${blocker.user},\n\n` +
+          `אפשר לעשות החלפת רכבים קצרה ב-${requesterDateLabel}?\n` +
+          `• ההזמנה שלך כרגע: ${requestedCarLabel} (${blockerStart}-${blockerEnd})\n` +
+          `• שינוי מבוקש: מעבר ל-${targetCarLabel} באותן שעות\n` +
+          `• אני צריך/ה: ${requestedCarLabel} (${formattedStart}-${formattedEnd})\n\n` +
+          `תודה!`
 
         const key = `${blocker.id}|${requestedCar}|${targetCar}|${params.requesterStartDateTime}|${params.requesterEndDateTime}`
         if (seen.has(key)) {
